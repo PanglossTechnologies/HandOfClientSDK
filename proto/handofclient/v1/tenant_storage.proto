@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package handofclient.v1;
+
+option csharp_namespace = "HandOfClient.V1";
+
+import "handofclient/v1/common.proto";
+
+// Mirrors the old IExtensionStorage shape: KV Get/Set/Delete plus streamed
+// file Exists/Read/Write, keyed {host, tenant, package} so one package can
+// never touch another's data. Quota limits are enforced server-side and
+// surfaced as a RESOURCE_EXHAUSTED status, not a proto field.
+
+message GetRequest {
+  TenantScope scope = 1;
+  string key = 2;
+}
+message GetResponse {
+  bytes value = 1;
+  bool found = 2;
+}
+
+message SetRequest {
+  TenantScope scope = 1;
+  string key = 2;
+  bytes value = 3;
+  // Optional compare-and-swap; empty = unconditional set. Multiple iframe
+  // instances of one plugin can race in ways single-process code never had
+  // to handle - see design doc "3. Platform API Contract".
+  string if_match_etag = 4;
+}
+message SetResponse {
+  string etag = 1;
+}
+
+message DeleteRequest {
+  TenantScope scope = 1;
+  string key = 2;
+}
+message DeleteResponse {}
+
+message FileExistsRequest {
+  TenantScope scope = 1;
+  string path = 2;
+}
+message FileExistsResponse {
+  bool exists = 1;
+  int64 size_bytes = 2;
+}
+
+message ReadFileRequest {
+  TenantScope scope = 1;
+  string path = 2;
+}
+message ReadFileResponse {
+  bytes data = 1;
+}
+
+// First message on the stream carries scope + path; subsequent messages
+// carry only data, so neither side buffers a whole file in memory.
+message WriteFileRequest {
+  TenantScope scope = 1;
+  string path = 2;
+  bytes data = 3;
+}
+message WriteFileResponse {
+  int64 bytes_written = 1;
+  string etag = 2;
+}
+
+service TenantStorage {
+  rpc Get(GetRequest) returns (GetResponse);
+  rpc Set(SetRequest) returns (SetResponse);
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+  rpc FileExists(FileExistsRequest) returns (FileExistsResponse);
+  rpc ReadFile(ReadFileRequest) returns (stream ReadFileResponse);
+  rpc WriteFile(stream WriteFileRequest) returns (WriteFileResponse);
+}

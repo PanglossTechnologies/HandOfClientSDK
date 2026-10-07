@@ -1,0 +1,30 @@
+{
+  "packageId": "handofclient/hello-world",
+  "publisher": "HandOfClient",
+  "name": "Hello World",
+  "description": "Minimal real HandOfClient plugin - demonstrates hoc.init/hoc.context/hoc.storage/hoc.ui/hoc.resizeAuto. See README.md.",
+  "version": "0.1.1",
+  "hostId": "sample-dotnet-host",
+  "entryPoints": {
+    "main-panel": "index.html"
+  },
+  "slots": [
+    {
+      "slotId": "main-panel",
+      "kind": "panel",
+      "title": "Hello World",
+      "hostPanelId": "main-panel",
+      "defaultEnabled": true
+    }
+  ],
+  "permissions": {
+    "scopes": ["storage.read", "storage.write"],
+    "egressHosts": []
+  },
+  "entitlement": {
+    "requiredFeatures": []
+  },
+  "updatePolicy": {
+    "kind": "pinned"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "packageId": "handofclient/vendor-spend-dashboard",
+  "publisher": "HandOfClient",
+  "name": "Vendor Spend Dashboard",
+  "description": "Bar chart of total purchase-order spend by vendor for the current tenant. Task E4 (dogfood): warehouse's first real customer customization shipped through HandOfClient instead of DotNetShared.Extensibility.",
+  "version": "0.1.1",
+  "hostId": "warehouse",
+  "entryPoints": {
+    "vendor-spend-panel": "index.html"
+  },
+  "slots": [
+    {
+      "slotId": "vendor-spend-panel",
+      "kind": "page",
+      "title": "Vendor Spend",
+      "targetPath": "vendor-spend-dashboard",
+      "showInNav": true,
+      "defaultEnabled": true
+    }
+  ],
+  "permissions": {
+    "scopes": [],
+    "egressHosts": []
+  },
+  "entitlement": {
+    "requiredFeatures": []
+  },
+  "updatePolicy": {
+    "kind": "pinned"
+  }
+}

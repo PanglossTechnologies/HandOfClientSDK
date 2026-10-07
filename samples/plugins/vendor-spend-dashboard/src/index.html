@@ -1,0 +1,77 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Vendor Spend - HandOfClient plugin</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: var(--hoc-font-family, system-ui, sans-serif);
+        color: var(--hoc-text-color, #1a1a1a);
+        background: var(--hoc-background-color, #ffffff);
+      }
+      /* Padding lives on #root, not body - see hello-world's src/index.html for why
+         (hoc.resizeAuto(root) measures #root's own getBoundingClientRect()). */
+      #root {
+        padding: 16px;
+      }
+      h2 {
+        margin: 0 0 4px;
+        font-size: 1.1rem;
+      }
+      .subtitle {
+        margin: 0 0 16px;
+        font-size: 0.8rem;
+        opacity: 0.7;
+      }
+      .bar-row {
+        display: grid;
+        grid-template-columns: 150px 1fr 100px;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 10px;
+      }
+      .bar-label {
+        font-size: 0.85rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .bar-track {
+        position: relative;
+        background: rgba(128, 128, 128, 0.15);
+        border-radius: 4px;
+        height: 20px;
+        overflow: hidden;
+      }
+      .bar-fill {
+        position: absolute;
+        inset: 0;
+        width: 0;
+        background: var(--hoc-accent-color, #2563eb);
+        border-radius: 4px;
+      }
+      .bar-value {
+        font-size: 0.8rem;
+        font-weight: 600;
+        text-align: right;
+      }
+      .bar-meta {
+        font-size: 0.7rem;
+        opacity: 0.6;
+        text-align: right;
+        display: block;
+        font-weight: 400;
+      }
+      .empty {
+        font-size: 0.85rem;
+        opacity: 0.7;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root">Loading...</div>
+    <!-- CSP served by the platform is script-src 'self' - all logic lives in plugin.js. -->
+    <script type="module" src="./plugin.js"></script>
+  </body>
+</html>

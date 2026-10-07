@@ -1,0 +1,14 @@
+version: v2
+modules:
+  - path: .
+lint:
+  use:
+    - STANDARD
+  except:
+    # Service names match the design doc's public vocabulary (PackageRegistry,
+    # Entitlement, TenantStorage, EgressProxy, AuditLog) verbatim - not
+    # renaming away from established spec/task naming for a lint default.
+    - SERVICE_SUFFIX
+breaking:
+  use:
+    - FILE

@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PackageId>HandOfClient.Client</PackageId>
+    <Description>HandOfClient Platform API client - generated handofclient.v1 gRPC client plus an auth-interceptor/retry wrapper.</Description>
+    <RootNamespace>HandOfClient.Client</RootNamespace>
+    <!-- PackageVersion is set at pack time by .github/workflows/release.yml (-p:PackageVersion=<tag>),
+         not hardcoded here - the git tag is the one source of truth for "what version is this",
+         same convention as the npm packages (see scripts/set-npm-release-version.mjs). -->
+    <PackageProjectUrl>https://github.com/PanglossTechnologies/HandOfClientSDK</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/PanglossTechnologies/HandOfClientSDK.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Single source of truth: the shared proto/ directory, not a copy. -->
+    <Protobuf Include="../../../proto/handofclient/v1/*.proto" ProtoRoot="../../../proto" GrpcServices="Client" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Protobuf" Version="3.36.0" />
+    <PackageReference Include="Grpc.Net.Client" Version="2.83.0" />
+    <PackageReference Include="Grpc.Tools" Version="2.83.0">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+</Project>

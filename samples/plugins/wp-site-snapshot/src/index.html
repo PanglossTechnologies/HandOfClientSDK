@@ -1,0 +1,50 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Site Snapshot</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: var(--hoc-font-family, system-ui, sans-serif);
+        color: var(--hoc-text-color, #1d2327);
+        background: var(--hoc-background-color, #ffffff);
+      }
+      /* Padding on #root, not body: hoc.resizeAuto(root) measures #root's own border-box, so padding
+         on an ancestor falls outside the measurement and the iframe is sized short of its content.
+         Same lesson as samples/plugins/hello-world - it is easy to reintroduce. */
+      #root { padding: 16px; }
+      .title { font-size: 20px; margin: 0 0 12px; }
+      h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .04em; opacity: .7; margin: 24px 0 8px; }
+      .cards { display: flex; flex-wrap: wrap; gap: 12px; }
+      .card {
+        flex: 1 1 100px;
+        border: 1px solid #dcdcde;
+        border-radius: var(--hoc-border-radius, 4px);
+        padding: 12px;
+      }
+      .card-value { font-size: 24px; font-weight: 600; }
+      .card-label { font-size: 12px; opacity: .7; margin-top: 2px; }
+      .chart { color: #50575e; }
+      .comments { list-style: none; margin: 0; padding: 0; }
+      .comments li { border-bottom: 1px solid #f0f0f1; padding: 8px 0; }
+      .excerpt { font-size: 13px; opacity: .75; margin-top: 2px; }
+      .footer { font-size: 12px; opacity: .6; margin-top: 24px; }
+      .status { opacity: .7; }
+      .error {
+        border: 1px solid #dba617;
+        background: #fcf9e8;
+        border-radius: var(--hoc-border-radius, 4px);
+        padding: 12px;
+      }
+      .error p { margin: 6px 0 0; }
+      .hint { font-size: 13px; opacity: .8; }
+      .empty { opacity: .6; }
+    </style>
+  </head>
+  <body>
+    <div id="root">Loading...</div>
+    <!-- Platform CSP is script-src 'self': no inline script. type="module" for top-level await. -->
+    <script type="module" src="./plugin.js"></script>
+  </body>
+</html>

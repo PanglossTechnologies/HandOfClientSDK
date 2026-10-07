@@ -1,0 +1,32 @@
+{
+  "name": "@handofclient/gen-ts",
+  "version": "0.0.0",
+  "description": "Generated (buf generate) TypeScript/Connect client for handofclient.v1 - do not hand-edit, see /buf.gen.yaml.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PanglossTechnologies/HandOfClientSDK.git",
+    "directory": "gen/ts"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "exports": {
+    "./*": "./dist/*.js"
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^1.10.1",
+    "@connectrpc/connect": "^1.7.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

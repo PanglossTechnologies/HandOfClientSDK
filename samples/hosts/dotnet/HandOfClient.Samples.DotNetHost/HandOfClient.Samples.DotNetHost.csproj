@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>HandOfClient.Samples.DotNetHost</RootNamespace>
+    <!-- Never committed - see README.md "Setup" for HostApiKey/WebhookSecret. -->
+    <UserSecretsId>handofclient-sample-dotnet-host</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Update="NLog.config">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NLog.Web.AspNetCore" Version="5.3.15" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- ProjectReference so the sample builds from a clone; switch to a PackageReference once HandOfClient.Client is on NuGet. -->
+    <ProjectReference Include="..\..\..\..\clients\csharp\HandOfClient.Client\HandOfClient.Client.csproj" />
+  </ItemGroup>
+
+</Project>

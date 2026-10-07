@@ -1,0 +1,68 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>HandOfClient sample .NET host (task E2)</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 16px; }
+      #panel-slot { border: 1px dashed #999; margin-top: 16px; min-height: 80px; }
+      #status { color: #666; font-size: 14px; }
+    </style>
+  </head>
+  <body>
+    <h1>HandOfClient sample .NET host</h1>
+    <p>
+      This page demonstrates the entire host integration cost described in
+      <code>docs/postmessage-protocol.md</code>: one <code>&lt;script&gt;</code> tag, one
+      <code>HandOfClient.mount()</code> call, and this server's own <code>/api/embed-token</code>
+      endpoint (see <code>Program.cs</code>).
+    </p>
+    <p id="status">Loading host config...</p>
+    <div id="panel-slot"></div>
+
+    <script src="/embed.global.js"></script>
+    <script>
+      const statusEl = document.getElementById("status");
+
+      async function main() {
+        const hostConfig = await fetch("/api/host-config").then((r) => r.json());
+
+        HandOfClient.configure({
+          apiBaseUrl: hostConfig.apiBaseUrl,
+          embedOrigin: hostConfig.embedOrigin,
+        });
+
+        statusEl.textContent = "Mounting plugin...";
+
+        try {
+          await HandOfClient.mount(document.getElementById("panel-slot"), {
+            hostId: hostConfig.hostId,
+            tenantId: hostConfig.tenantId,
+            packageId: hostConfig.packageId,
+            slotId: hostConfig.slotId,
+            tokenUrl: "/api/embed-token",
+            theme: {
+              colorScheme: "light",
+              accentColor: "#2563eb",
+              backgroundColor: "#ffffff",
+              textColor: "#1a1a1a",
+              fontFamily: "system-ui, sans-serif",
+              borderRadius: "8px",
+            },
+            locale: "en-US",
+            onError: (error) => {
+              statusEl.textContent = `Mount failed: ${error.reason} - ${error.message}`;
+              console.error("HandOfClient mount error", error);
+            },
+          });
+          statusEl.textContent = "Plugin mounted.";
+        } catch (error) {
+          statusEl.textContent = `Mount failed: ${error.reason ?? "unknown"} - ${error.message}`;
+          console.error("HandOfClient mount error", error);
+        }
+      }
+
+      main();
+    </script>
+  </body>
+</html>

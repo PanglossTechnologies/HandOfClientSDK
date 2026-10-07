@@ -1,0 +1,26 @@
+{
+  "name": "handofclient-sdk",
+  "version": "0.0.0",
+  "private": true,
+  "description": "HandOfClient SDK: proto contract, generated clients, embed.js, publisher CLI, host adapters and samples.",
+  "license": "Apache-2.0",
+  "workspaces": [
+    "gen/ts",
+    "clients/ts",
+    "sdk/embed-js",
+    "tools/publisher-cli",
+    "samples/plugins/hello-world",
+    "samples/plugins/vendor-spend-dashboard",
+    "samples/plugins/wp-site-snapshot"
+  ],
+  "scripts": {
+    "build": "npm run build -w @handofclient/gen-ts -w @handofclient/api -w @handofclient/embed-js -w @handofclient/publisher-cli -w @handofclient/sample-hello-world-plugin -w @handofclient/vendor-spend-dashboard-plugin",
+    "proto:lint": "buf lint proto",
+    "proto:generate": "buf generate"
+  },
+  "devDependencies": {
+    "@bufbuild/buf": "^1.72.0",
+    "@bufbuild/protoc-gen-es": "^1.10.1",
+    "@connectrpc/protoc-gen-connect-es": "^1.7.0"
+  }
+}

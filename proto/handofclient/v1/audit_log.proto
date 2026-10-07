@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package handofclient.v1;
+
+option csharp_namespace = "HandOfClient.V1";
+
+import "google/protobuf/timestamp.proto";
+import "handofclient/v1/common.proto";
+
+// Every Platform API call, egress call, token issuance, and activation
+// change lands as an AuditEntry via a shared server interceptor, not
+// per-service opt-in logging. Hosts get read access scoped to their own
+// tenants - see design doc "7. Security Model Summary".
+
+enum AuditKind {
+  AUDIT_KIND_UNSPECIFIED = 0;
+  AUDIT_KIND_API_CALL = 1;
+  AUDIT_KIND_EGRESS_CALL = 2;
+  AUDIT_KIND_TOKEN_ISSUED = 3;
+  AUDIT_KIND_ACTIVATION_CHANGE = 4;
+}
+
+message AuditEntry {
+  string entry_id = 1;
+  TenantScope scope = 2;
+  AuditKind kind = 3;
+  string actor = 4;        // host user id, host api key id, or "system"
+  string summary = 5;      // human-readable one-line description
+  string detail_json = 6;  // structured detail, kind-specific
+  google.protobuf.Timestamp occurred_at = 7;
+}
+
+message QueryRequest {
+  string host_id = 1;
+  string tenant_id = 2;  // optional filter
+  string package_id = 3; // optional filter
+  google.protobuf.Timestamp start_time = 4;
+  google.protobuf.Timestamp end_time = 5;
+  AuditKind kind = 6; // AUDIT_KIND_UNSPECIFIED = any
+  PageRequest page = 7;
+}
+message QueryResponse {
+  repeated AuditEntry entries = 1;
+  PageResponse page = 2;
+}
+
+service AuditLog {
+  rpc Query(QueryRequest) returns (QueryResponse);
+}

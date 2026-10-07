@@ -1,0 +1,31 @@
+{
+  "packageId": "handofclient/wp-site-snapshot",
+  "publisher": "HandOfClient",
+  "name": "Site Snapshot",
+  "description": "Reads this WordPress site's own content through the host data API and renders a summary: content counts, publishing cadence by month, and recent comment activity. The reference example for the WordPress host adapter - see docs/wordpress-host.md.",
+  "version": "0.1.0",
+  "hostId": "yayatea",
+  "entryPoints": {
+    "site-snapshot": "index.html"
+  },
+  "slots": [
+    {
+      "slotId": "site-snapshot",
+      "kind": "page",
+      "title": "Site Snapshot",
+      "targetPath": "site-snapshot",
+      "showInNav": true,
+      "defaultEnabled": true
+    }
+  ],
+  "permissions": {
+    "scopes": [],
+    "egressHosts": ["yayatea.com"]
+  },
+  "entitlement": {
+    "requiredFeatures": []
+  },
+  "updatePolicy": {
+    "kind": "pinned"
+  }
+}

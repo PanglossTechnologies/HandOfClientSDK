@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+package handofclient.v1;
+
+option csharp_namespace = "HandOfClient.V1";
+
+import "handofclient/v1/common.proto";
+
+// v1: the host pushes plan facts in via ReportUsage/its own registry calls,
+// rather than the platform querying a host callback at render time - see
+// design doc "3. Platform API Contract".
+message CheckFeaturesRequest {
+  TenantScope scope = 1;
+  repeated string required_features = 2;
+}
+message CheckFeaturesResponse {
+  bool allowed = 1;
+  repeated string missing_features = 2;
+}
+
+message UsageRecord {
+  string metric = 1; // opaque usage metric key, e.g. "api_calls", "storage_bytes"
+  double quantity = 2;
+}
+
+message ReportUsageRequest {
+  TenantScope scope = 1;
+  repeated UsageRecord records = 2;
+}
+message ReportUsageResponse {}
+
+// Closes a gap left open when this service was first authored: v1's "host
+// pushes plan facts in" design (see comment above) had no RPC that actually
+// lets a host declare which features a tenant has - only CheckFeatures
+// (read) and ReportUsage existed. Host-admin authenticated, like the
+// PackageRegistry management RPCs.
+message SetTenantFeaturesRequest {
+  string host_id = 1;
+  string tenant_id = 2;
+  repeated string granted_features = 3;
+}
+message SetTenantFeaturesResponse {
+  repeated string granted_features = 1;
+}
+
+// E1 addition: same read-side gap as SetTenantFeatures itself closed for the write side (see comment
+// above) - the admin UI needs to show currently-granted features before editing them.
+message GetTenantFeaturesRequest {
+  string host_id = 1;
+  string tenant_id = 2;
+}
+message GetTenantFeaturesResponse {
+  repeated string granted_features = 1;
+}
+
+service Entitlement {
+  rpc CheckFeatures(CheckFeaturesRequest) returns (CheckFeaturesResponse);
+  rpc ReportUsage(ReportUsageRequest) returns (ReportUsageResponse);
+  rpc SetTenantFeatures(SetTenantFeaturesRequest) returns (SetTenantFeaturesResponse);
+  rpc GetTenantFeatures(GetTenantFeaturesRequest) returns (GetTenantFeaturesResponse);
+}

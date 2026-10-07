@@ -1,0 +1,22 @@
+{
+  "name": "@handofclient/wp-site-snapshot-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reference plugin for the WordPress host adapter - reads the host site's own content through the named-query data API via EgressProxy. See docs/wordpress-host.md.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "publish:dry-run": "hoc-publish --manifest manifest.json --bundle bundle-dist --api-key unused-for-dry-run --dry-run",
+    "publish": "hoc-publish --manifest manifest.json --bundle bundle-dist"
+  },
+  "dependencies": {
+    "@handofclient/embed-js": "*"
+  },
+  "devDependencies": {
+    "@handofclient/publisher-cli": "*",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.9.3"
+  }
+}

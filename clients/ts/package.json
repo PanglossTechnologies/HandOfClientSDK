@@ -1,0 +1,33 @@
+{
+  "name": "@handofclient/api",
+  "version": "0.0.0",
+  "description": "HandOfClient Platform API client - thin auth-interceptor wrapper over the generated handofclient.v1 Connect client.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PanglossTechnologies/HandOfClientSDK.git",
+    "directory": "clients/ts"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@handofclient/gen-ts": "*",
+    "@bufbuild/protobuf": "^1.10.1",
+    "@connectrpc/connect": "^1.7.0",
+    "@connectrpc/connect-web": "^1.7.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

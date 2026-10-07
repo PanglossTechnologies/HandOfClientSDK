@@ -1,0 +1,414 @@
+syntax = "proto3";
+
+package handofclient.v1;
+
+option csharp_namespace = "HandOfClient.V1";
+
+import "google/protobuf/timestamp.proto";
+import "handofclient/v1/common.proto";
+
+// --- Manifest (see design doc "1. Package Manifest Schema (v1)") ---
+
+enum SlotKind {
+  SLOT_KIND_UNSPECIFIED = 0;
+  SLOT_KIND_PAGE = 1;
+  SLOT_KIND_OVERRIDE = 2;
+  SLOT_KIND_PANEL = 3;
+}
+
+message SlotDecl {
+  string slot_id = 1;
+  SlotKind kind = 2;
+  string title = 3;
+  bool show_in_nav = 4;
+  bool default_enabled = 5;
+
+  // SLOT_KIND_PAGE: host mounts under ext/{target_path}.
+  string target_path = 6;
+
+  // SLOT_KIND_OVERRIDE: replaces an existing host route.
+  string match_path = 7;
+  // Alias-group fan-out key, ported verbatim from the old
+  // ExtensionRouteDecl.aliasGroupKey semantics.
+  string alias_group_key = 8;
+
+  // SLOT_KIND_PANEL: named region ID the host page declares.
+  string host_panel_id = 9;
+}
+
+message BundleRef {
+  // slotName -> relative path in the bundle.
+  map<string, string> entry_points = 1;
+  // sha256 of the canonical bundle archive.
+  string bundle_hash = 2;
+  // relative path -> sha256 SRI hash, recorded at upload.
+  map<string, string> file_integrity = 3;
+}
+
+message Permissions {
+  // e.g. storage.read, storage.write, egress, tokens.userinfo.
+  repeated string scopes = 1;
+  repeated string egress_hosts = 2;
+}
+
+message EntitlementRequirement {
+  repeated string required_features = 1;
+}
+
+enum UpdatePolicyKind {
+  UPDATE_POLICY_KIND_UNSPECIFIED = 0;
+  UPDATE_POLICY_KIND_PINNED = 1;
+  UPDATE_POLICY_KIND_CHANNEL = 2;
+}
+
+enum Channel {
+  CHANNEL_UNSPECIFIED = 0;
+  CHANNEL_STABLE = 1;
+  CHANNEL_BETA = 2;
+}
+
+message UpdatePolicy {
+  UpdatePolicyKind kind = 1;
+  // Set when kind == UPDATE_POLICY_KIND_CHANNEL.
+  Channel channel = 2;
+}
+
+// --- Host hook bridge ---
+//
+// Lets a package react to events in the host application (WordPress actions and filters) without
+// shipping any code into the host process. The asymmetry below is a hard property of the host, not
+// a v1 shortcut, and the schema is shaped so it cannot be papered over:
+//
+//   An ACTION is fire-and-forget. Nothing consumes its return value, so the host may dispatch it
+//   asynchronously and carry on. That maps cleanly onto a webhook.
+//
+//   A FILTER must return a value synchronously - the host is mid-computation and blocks on it. A
+//   webhook fundamentally cannot do that: the round trip would either stall every page load on a
+//   third party or have to invent a value when it times out, and inventing one silently corrupts
+//   the very content the filter exists to shape. So filters carry a DECLARATIVE transform that the
+//   host evaluates locally with no network call at all. Anything a transform cannot express is
+//   rejected at publish time. That refusal is the feature: the alternative is a filter that works
+//   in testing and truncates a customer's content the first time the network is slow.
+enum HookKind {
+  HOOK_KIND_UNSPECIFIED = 0;
+  HOOK_KIND_ACTION = 1;
+  HOOK_KIND_FILTER = 2;
+}
+
+enum FilterTransformKind {
+  FILTER_TRANSFORM_KIND_UNSPECIFIED = 0;
+  FILTER_TRANSFORM_KIND_APPEND = 1;
+  FILTER_TRANSFORM_KIND_PREPEND = 2;
+  FILTER_TRANSFORM_KIND_REPLACE = 3;
+  FILTER_TRANSFORM_KIND_CONST = 4;
+}
+
+// Evaluated by the host, in-process, against the filtered value. Deliberately not a expression
+// language: every kind here is total, terminates, cannot fail, and cannot read anything but the
+// value it was handed.
+message FilterTransform {
+  FilterTransformKind kind = 1;
+  // APPEND / PREPEND / CONST: the literal text.
+  string text = 2;
+  // REPLACE: literal search -> replacement. Literal, never a regex - a caller-supplied pattern is
+  // a denial-of-service primitive (catastrophic backtracking) on a value the host must produce.
+  map<string, string> replacements = 3;
+}
+
+message HookDecl {
+  // Host-side hook name, e.g. "save_post" or "the_title".
+  string hook = 1;
+  HookKind kind = 2;
+  // Host hook priority and arity. 0 means "host default" (10 and 1 in WordPress).
+  int32 priority = 3;
+  int32 accepted_args = 4;
+
+  // ACTION only. Absolute https:// URL the PLATFORM relays the event to - the host posts only to
+  // the platform, never to a third party directly, so hook egress lands under exactly the same
+  // allowlist as plugin egress. The hostname must appear BOTH in permissions.egress_hosts (the
+  // package asking) and in the tenant's own egress allowlist (the tenant granting).
+  string webhook_url = 5;
+  // ACTION only. Which positional hook arguments to include in the payload. Scalars are sent as-is;
+  // anything else is reduced to a type name, because a WordPress hook argument is routinely a whole
+  // WP_Post or WP_User and shipping one off-site by default would be an accidental data leak.
+  repeated int32 arg_indexes = 6;
+
+  // FILTER only.
+  FilterTransform transform = 7;
+}
+
+message Manifest {
+  int32 manifest_version = 1; // literal 1; gate for future schema evolution
+  string package_id = 2;      // globally unique, publisher-scoped slug
+  string publisher = 3;
+  string name = 4;
+  string description = 5;
+  string version = 6;         // required semver
+  string host_id = 7;         // which host product this package targets
+
+  // Empty = any tenant of that host may activate (entitlement-gated).
+  // Non-empty = registry refuses activation for any other tenant.
+  string tenant_key = 8;
+
+  BundleRef bundle = 9;
+  repeated SlotDecl slots = 10;
+  Permissions permissions = 11;
+  EntitlementRequirement entitlement = 12;
+  UpdatePolicy update_policy = 13;
+
+  // Host events this package reacts to. Empty for packages that only render slots.
+  repeated HookDecl hooks = 14;
+
+  // When true, BundleEndpoints emits a locked-down CSP (default-src 'none'; connect-src 'none'; ...)
+  // instead of the platform default of "connect-src 'self' {apiOrigin}", which forces normal plugin
+  // egress through EgressProxy. Built for publishers whose bundles are untrusted at generation time
+  // (e.g. CrowdGames' AI-generated, anonymous-prompt browser games) and must have zero network access,
+  // not just egress restricted to an allowlist. Pinned PER VERSION at publish time (mirrored onto
+  // BundleEntity.StrictCsp, which is what BundleEndpoints actually reads) - deliberately NOT read from
+  // the Package record, which is mutable and re-mirrored on every publish: bundle content is immutable
+  // per version (served Cache-Control: immutable), so its CSP must be too, or a later publish with a
+  // non-strict manifest would retroactively weaken every earlier version's already-served/cached CSP
+  // (B25). See PublishVersion / PackageRecord.StrictCsp for the package-level default this also sets.
+  bool strict_csp = 15;
+}
+
+// --- Registry-side records ---
+
+enum VersionState {
+  VERSION_STATE_UNSPECIFIED = 0;
+  VERSION_STATE_PUBLISHED = 1;
+  // Integrity/security pull. Never served to new activations; existing
+  // pinned activations are flagged for the host-admin UI to surface.
+  VERSION_STATE_YANKED = 2;
+}
+
+message PackageVersion {
+  string package_id = 1;
+  string version = 2;
+  Manifest manifest = 3;
+  VersionState state = 4;
+  string published_by = 5;
+  google.protobuf.Timestamp published_at = 6;
+}
+
+message Package {
+  string package_id = 1;
+  string publisher = 2;
+  string name = 3;
+  string description = 4;
+  string host_id = 5;
+  google.protobuf.Timestamp created_at = 6;
+  // See Manifest.strict_csp - mirrored onto the package record at PublishVersion time as a
+  // package-level default/display value only. NOT what BundleEndpoints reads to choose a served
+  // version's CSP (that's the per-version BundleEntity.StrictCsp) - this field is mutable and gets
+  // overwritten on every publish, so it must never be re-wired into that decision.
+  bool strict_csp = 7;
+}
+
+message Activation {
+  TenantScope scope = 1;
+  string slot_id = 2;
+  string active_version = 3;
+  bool pinned = 4;
+  bool enabled = 5;
+  google.protobuf.Timestamp activated_at = 6;
+  string activated_by = 7;
+}
+
+message Host {
+  string host_id = 1;
+  string display_name = 2;
+  // Origins allowed to frame this host's embedded packages (frame-ancestors).
+  repeated string registered_origins = 3;
+  string webhook_url = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+// --- RPCs ---
+
+message PublishVersionRequest {
+  Manifest manifest = 1;
+  // Opaque ref to an already-uploaded bundle (see B7 bundle store).
+  string bundle_upload_ref = 2;
+}
+message PublishVersionResponse {
+  PackageVersion version = 1;
+}
+
+message ListPackagesRequest {
+  string host_id = 1;
+  string publisher = 2; // optional filter
+  PageRequest page = 3;
+}
+message ListPackagesResponse {
+  repeated Package packages = 1;
+  PageResponse page = 2;
+}
+
+message ListVersionsRequest {
+  string package_id = 1;
+  PageRequest page = 2;
+}
+message ListVersionsResponse {
+  repeated PackageVersion versions = 1;
+  PageResponse page = 2;
+}
+
+message GetActiveVersionRequest {
+  TenantScope scope = 1;
+  string slot_id = 2;
+}
+message GetActiveVersionResponse {
+  PackageVersion version = 1;
+  SlotDecl slot = 2;
+  bool enabled = 3;
+}
+
+message ActivateRequest {
+  TenantScope scope = 1;
+  string slot_id = 2;
+  string version = 3;
+}
+message ActivateResponse {
+  Activation activation = 1;
+}
+
+message PinRequest {
+  TenantScope scope = 1;
+  string slot_id = 2;
+  bool pinned = 3;
+}
+message PinResponse {
+  Activation activation = 1;
+}
+
+message RollbackRequest {
+  TenantScope scope = 1;
+  string slot_id = 2;
+  // Must be a version this tenant was previously activated on.
+  string target_version = 3;
+}
+message RollbackResponse {
+  Activation activation = 1;
+}
+
+message SetSlotEnabledRequest {
+  TenantScope scope = 1;
+  string slot_id = 2;
+  bool enabled = 3;
+  // Fan out to every slot sharing the same alias_group_key.
+  bool apply_to_alias_group = 4;
+}
+message SetSlotEnabledResponse {
+  repeated string affected_slot_ids = 1;
+}
+
+message RegisterHostRequest {
+  Host host = 1;
+}
+message RegisterHostResponse {
+  Host host = 1;
+  // Returned once at registration time only; never retrievable again.
+  string api_key = 2;
+  // HMAC-SHA256 key the platform signs webhook deliveries with (see Host.webhook_url). Empty if no
+  // webhook_url was given at registration - nothing will ever be signed with it, so nothing is issued.
+  string webhook_secret = 3;
+}
+
+message SetTenantEgressAllowlistRequest {
+  string host_id = 1;
+  string tenant_id = 2;
+  repeated string allowed_hosts = 3;
+}
+message SetTenantEgressAllowlistResponse {
+  repeated string allowed_hosts = 1;
+}
+
+// A real v1 gap RegisterHost's own implementation comment already flagged: registered_origins is
+// frozen forever at registration time, so a host that later adds a domain (a customer buys a custom
+// domain, or a plugin author's dev pairing later needs to also serve a production site) has no way
+// to widen it short of re-registering under a brand new host_id, which would also mint a new API key
+// and orphan every existing activation. Deliberately append-only and origins-only (not a general
+// UpdateHost) - display_name/webhook_url/api_key changes are a different, unasked-for surface.
+message AddHostOriginsRequest {
+  string host_id = 1;
+  repeated string origins = 2;
+}
+message AddHostOriginsResponse {
+  // The full updated origin list, post-merge.
+  Host host = 1;
+}
+
+// Closes the companion gap AddHostOrigins' own comment flagged: until now, a lost or leaked API key
+// had no recovery path short of re-registering under a brand new host_id, which orphans every
+// existing package (PublishVersion/Activate permanently pin package_id to its first-publishing
+// host_id - see PackageRegistryGrpcService.RequireOwnedPackageAsync) and every existing activation.
+// SuperAdminKey-gated, same as RegisterHost/AddHostOrigins: rotating a host's credential is exactly as
+// sensitive as minting one. Immediately invalidates the old key - the caller is responsible for
+// updating whatever holds it (a WordPress site's plugin settings, a host's user-secrets) before any
+// call made with the old key next runs.
+message RotateApiKeyRequest {
+  string host_id = 1;
+}
+message RotateApiKeyResponse {
+  Host host = 1;
+  // Returned once, like RegisterHostResponse.api_key; never retrievable again.
+  string api_key = 2;
+}
+
+// --- E1 additions: read-side RPCs the admin UI needs and B1/B4/B6 never added (same shape of gap
+// as B6's own SetTenantFeatures amendment - a write RPC with no matching read). ---
+
+message GetTenantEgressAllowlistRequest {
+  string host_id = 1;
+  string tenant_id = 2;
+}
+message GetTenantEgressAllowlistResponse {
+  repeated string allowed_hosts = 1;
+}
+
+message ListHostsRequest {
+  PageRequest page = 1;
+}
+message ListHostsResponse {
+  repeated Host hosts = 1;
+  PageResponse page = 2;
+}
+
+message ListActivationsRequest {
+  // All optional filters; host_id is implicit from the authenticated caller, never client-supplied.
+  string tenant_id = 1;
+  string package_id = 2;
+  string slot_id = 3;
+  PageRequest page = 4;
+}
+message ListActivationsResponse {
+  repeated Activation activations = 1;
+  PageResponse page = 2;
+}
+
+message WhoAmIRequest {}
+message WhoAmIResponse {
+  // The authenticated host's own record. Never includes the API key - see RegisterHostResponse's own
+  // comment for why that's returned once and never retrievable again.
+  Host host = 1;
+}
+
+service PackageRegistry {
+  rpc PublishVersion(PublishVersionRequest) returns (PublishVersionResponse);
+  rpc ListPackages(ListPackagesRequest) returns (ListPackagesResponse);
+  rpc ListVersions(ListVersionsRequest) returns (ListVersionsResponse);
+  rpc GetActiveVersion(GetActiveVersionRequest) returns (GetActiveVersionResponse);
+  rpc Activate(ActivateRequest) returns (ActivateResponse);
+  rpc Pin(PinRequest) returns (PinResponse);
+  rpc Rollback(RollbackRequest) returns (RollbackResponse);
+  rpc SetSlotEnabled(SetSlotEnabledRequest) returns (SetSlotEnabledResponse);
+  rpc RegisterHost(RegisterHostRequest) returns (RegisterHostResponse);
+  rpc AddHostOrigins(AddHostOriginsRequest) returns (AddHostOriginsResponse);
+  rpc RotateApiKey(RotateApiKeyRequest) returns (RotateApiKeyResponse);
+  rpc SetTenantEgressAllowlist(SetTenantEgressAllowlistRequest) returns (SetTenantEgressAllowlistResponse);
+  rpc GetTenantEgressAllowlist(GetTenantEgressAllowlistRequest) returns (GetTenantEgressAllowlistResponse);
+  rpc ListHosts(ListHostsRequest) returns (ListHostsResponse);
+  rpc ListActivations(ListActivationsRequest) returns (ListActivationsResponse);
+  rpc WhoAmI(WhoAmIRequest) returns (WhoAmIResponse);
+}

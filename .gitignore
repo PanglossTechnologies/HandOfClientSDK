@@ -1,0 +1,56 @@
+# Node
+node_modules/
+dist/
+bundle-dist/
+npm-debug.log*
+yarn-error.log*
+*.tsbuildinfo
+
+# .NET
+bin/
+obj/
+*.user
+TestResults/
+
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+
+# Python (gen/python, samples/hosts/python-flask)
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# Java (gen/java, samples/hosts/java-spring)
+target/
+build/
+*.class
+.gradle/
+
+
+# OS / editor
+.vs/
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Local secrets / config overrides
+appsettings.*.local.json
+.env
+.env.*
+
+# WordPress plugin build output. embed.global.js is copied in from sdk/embed-js at build time
+# (host-adapters/wordpress/build.mjs), so it is generated, not source.
+host-adapters/wordpress/dist/
+host-adapters/wordpress/handofclient/assets/js/embed.global.js
+
+# Local WordPress dev harness: a downloaded portable PHP, a WordPress install and its SQLite
+# database. Entirely reproducible from host-adapters/wordpress/devharness/setup.mjs, so none of it is
+# source. Also contains a live host API key in wp-config/options - never commit it.
+.wp-local/

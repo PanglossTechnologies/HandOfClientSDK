@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+package handofclient.v1;
+
+option csharp_namespace = "HandOfClient.V1";
+
+import "google/protobuf/timestamp.proto";
+
+// IssueEmbedToken is called server-to-server only, by a host's own backend
+// after it has validated its own user session - the host stays the
+// authority on who is logged in. host_api_key must never reach a browser.
+message IssueEmbedTokenRequest {
+  string host_api_key = 1;
+  string tenant_id = 2;
+  string user_id = 3; // host-opaque user identifier
+  string slot_id = 4;
+  string package_id = 5;
+  map<string, string> launch_params = 6;
+}
+message IssueEmbedTokenResponse {
+  string token = 1;
+  google.protobuf.Timestamp expires_at = 2;
+}
+
+// RefreshEmbedToken is called by the host page (not the iframe directly) so
+// a dead host session kills the plugin's API access - see design doc
+// "2. postMessage Embed Protocol + JS SDK", hoc:token-refresh.
+message RefreshEmbedTokenRequest {
+  string token = 1;
+}
+message RefreshEmbedTokenResponse {
+  string token = 1;
+  google.protobuf.Timestamp expires_at = 2;
+}
+
+message GetJwksRequest {}
+message GetJwksResponse {
+  // RFC 7517 JWK Set (ES256 keys) so hosts/plugins can verify tokens locally.
+  string jwks_json = 1;
+}
+
+service TokenService {
+  rpc IssueEmbedToken(IssueEmbedTokenRequest) returns (IssueEmbedTokenResponse);
+  rpc RefreshEmbedToken(RefreshEmbedTokenRequest) returns (RefreshEmbedTokenResponse);
+  rpc GetJwks(GetJwksRequest) returns (GetJwksResponse);
+}

@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package handofclient.v1;
+
+option csharp_namespace = "HandOfClient.V1";
+
+import "handofclient/v1/common.proto";
+
+// EgressProxy is an internet-facing SSRF surface (the old in-process
+// IExtensionHttp never faced hostile network positioning). The server
+// resolves the target host, enforces manifest.egressHosts intersected with
+// the tenant-admin allowlist, blocks private/link-local IP ranges and
+// DNS-rebinding, applies per-tenant rate limits and deadlines, and logs
+// every call to AuditLog. See design doc "8. Open Questions and Risks" #4 -
+// these protections are launch blockers, not optional hardening.
+
+enum HttpMethod {
+  HTTP_METHOD_UNSPECIFIED = 0;
+  HTTP_METHOD_GET = 1;
+  HTTP_METHOD_POST = 2;
+  HTTP_METHOD_PUT = 3;
+  HTTP_METHOD_PATCH = 4;
+  HTTP_METHOD_DELETE = 5;
+  HTTP_METHOD_HEAD = 6;
+}
+
+message HttpHeader {
+  string name = 1;
+  string value = 2;
+}
+
+message SendRequest {
+  TenantScope scope = 1;
+  HttpMethod method = 2;
+  // Must resolve to a host in manifest.egressHosts AND the tenant allowlist.
+  string url = 3;
+  repeated HttpHeader headers = 4;
+  bytes body = 5;
+  int32 timeout_ms = 6; // enforced server-side deadline
+}
+
+message SendResponse {
+  int32 status_code = 1;
+  repeated HttpHeader headers = 2;
+  bytes body = 3;
+}
+
+service EgressProxy {
+  rpc Send(SendRequest) returns (SendResponse);
+}

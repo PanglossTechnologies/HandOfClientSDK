@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Hello World - HandOfClient sample plugin</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: var(--hoc-font-family, system-ui, sans-serif);
+        color: var(--hoc-text-color, #1a1a1a);
+        background: var(--hoc-background-color, #ffffff);
+      }
+      /* Padding lives on #root, not body: hoc.resizeAuto(root) (see index.ts) measures #root's own
+         border-box via getBoundingClientRect() - padding on an ancestor of the measured element falls
+         outside that measurement, so the iframe would be sized short of the real content and show its
+         own internal scrollbar. Found live: the host page rendered a scrollbar inside the plugin's
+         iframe even though hoc:resize was firing and being applied correctly - the wire protocol worked,
+         the padding was just invisible to it. */
+      #root {
+        padding: 16px;
+      }
+      button {
+        border-radius: 6px;
+        border: 1px solid #ccc;
+        padding: 6px 12px;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root">Loading...</div>
+    <!-- CSP served by the platform is script-src 'self' (see docs/postmessage-protocol.md section 7) -
+         no inline <script>, so all logic lives in plugin.js. type="module" because plugin.js uses
+         top-level await (see build.mjs). -->
+    <script type="module" src="./plugin.js"></script>
+  </body>
+</html>

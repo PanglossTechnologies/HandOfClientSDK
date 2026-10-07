@@ -1,0 +1,32 @@
+{
+  "name": "@handofclient/embed-js",
+  "version": "0.0.0",
+  "private": true,
+  "description": "HandOfClient postMessage embed protocol SDK (task C1 spec at docs/postmessage-protocol.md): host-side embed.js (drop-in <script> or npm import) plus the plugin-side SDK a plugin author imports inside their own bundle.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    "./host": {
+      "types": "./dist/host/index.d.ts",
+      "import": "./dist/host/index.js"
+    },
+    "./plugin": {
+      "types": "./dist/plugin/index.d.ts",
+      "import": "./dist/plugin/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node build.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@handofclient/api": "*"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "typescript": "^5.9.3"
+  }
+}
