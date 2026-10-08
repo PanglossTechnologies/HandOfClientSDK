@@ -1,6 +1,6 @@
 {
   "name": "@handofclient/gen-ts",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Generated (buf generate) TypeScript/Connect client for handofclient.v1 - do not hand-edit, see /buf.gen.yaml.",
   "license": "Apache-2.0",
   "repository": {

@@ -28,3 +28,22 @@ jobs:
           sha256sum embed.global.js > embed.global.js.sha256
           gh release create "$GITHUB_REF_NAME" embed.global.js embed.global.js.sha256 \
             --title "$GITHUB_REF_NAME" --generate-notes
+
+  # npm publish via Trusted Publishing (OIDC, no stored token). Needs a trusted publisher configured on
+  # npmjs.com for each package: repo PanglossTechnologies/HandOfClientSDK, workflow release.yml.
+  npm:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - run: npm install -g npm@latest
+      - run: npm ci
+      - run: npm run build
+      - run: |
+          npm publish -w @handofclient/gen-ts -w @handofclient/api -w @handofclient/embed-js --provenance --access public

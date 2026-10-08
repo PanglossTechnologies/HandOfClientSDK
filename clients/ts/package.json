@@ -1,6 +1,6 @@
 {
   "name": "@handofclient/api",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "HandOfClient Platform API client - thin auth-interceptor wrapper over the generated handofclient.v1 Connect client.",
   "license": "Apache-2.0",
   "repository": {
@@ -22,7 +22,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@handofclient/gen-ts": "*",
+    "@handofclient/gen-ts": "^0.1.0",
     "@bufbuild/protobuf": "^1.10.1",
     "@connectrpc/connect": "^1.7.0",
     "@connectrpc/connect-web": "^1.7.0"
