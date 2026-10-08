@@ -33,7 +33,9 @@ You get back, per environment:
 1. **Load `embed.js`**: download `embed.global.js` from the
    [latest release](https://github.com/PanglossTechnologies/HandOfClientSDK/releases/latest/download/embed.global.js)
    (or build it: `npm install && npm run build`, output `sdk/embed-js/dist/embed.global.js`), put it in
-   your static files and load it with a `<script>` tag. Add a container with a height, then:
+   your static files and load it with a `<script>` tag.
+   Bundler-based apps can instead `npm install @handofclient/embed-js` and `import` from
+   `@handofclient/embed-js/host` (plugin authors: `/plugin`). Add a container with a height, then:
    ```js
    HandOfClient.configure({ apiBaseUrl, embedOrigin });
    HandOfClient.mount(container, { hostId, tenantId, packageId, slotId, tokenUrl: "hoc/token" });
