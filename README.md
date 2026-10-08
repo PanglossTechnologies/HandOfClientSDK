@@ -50,9 +50,26 @@ You get back, per environment:
    credential in the vault (`PUT /host/v1/secrets`). Plugins send `Authorization: Bearer {{secret:name}}`;
    the proxy substitutes it server-side.
 
+Minimal host page (replace the `<...>` values with what you received; serve it with your token endpoint
+at `hoc/token`):
+```html
+<!doctype html>
+<div id="plugin" style="height:400px"></div>
+<script src="embed.global.js"></script>
+<script>
+  HandOfClient.configure({ apiBaseUrl: "<apiBaseUrl>", embedOrigin: "<apiBaseUrl>" });
+  HandOfClient.mount(document.getElementById("plugin"), {
+    hostId: "<hostId>", tenantId: "<tenantId>",
+    packageId: "handofclient/hello-world", slotId: "main-panel",
+    tokenUrl: "hoc/token"
+  });
+</script>
+```
+
 Working examples: [`samples/hosts/python-flask`](samples/hosts/python-flask) (~70 lines),
 [`samples/hosts/dotnet`](samples/hosts/dotnet). WordPress: [`host-adapters/wordpress`](host-adapters/wordpress)
 and [`docs/wordpress-host.md`](docs/wordpress-host.md).
+No-source (non-.NET) hosts: [`docs/no-source-integration.md`](docs/no-source-integration.md).
 
 ## Write a plugin
 
