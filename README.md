@@ -11,17 +11,35 @@ limit, audit), and credentials stay in a server-side vault - the plugin never se
       +-- /hoc/token (your server, your API key) --> platform /host/v1/embed-token
 ```
 
-The platform itself is hosted; this repo is everything you need to integrate with it. Access is by
-request: contact the maintainers for a tenant, a `hostId` and a host API key.
+The platform itself is hosted; this repo is everything you need to integrate with it.
+
+## Get access
+
+Access is by request. Email support@panglosstechnologies.com with your company, site URL and backend language.
+You get back, per environment:
+
+| Value | Used for |
+|---|---|
+| `apiBaseUrl` | Platform API base, e.g. `https://hocapi.panglosstechnologies.com`. Also the default `embedOrigin`. |
+| `hostId` | Identifies your site. Public; goes in the page. |
+| `tenantId` | Your tenant. Public; goes in the page and the token call. |
+| host API key | Secret. Server-side only, sent as `x-api-key` by your token endpoint. |
+
+`packageId` / `slotId` pick the plugin and where it mounts. Try `handofclient/hello-world` / `main-panel`
+(the sample plugin), then use your own once published (see "Write a plugin").
 
 ## Integrate your app (any backend language)
 
-1. **Load `embed.js`** (`sdk/embed-js`, build with `npm run build`, serve `dist/embed.global.js` yourself),
-   add a container, then:
+1. **Load `embed.js`**: download `embed.global.js` from the
+   [latest release](https://github.com/PanglossTechnologies/HandOfClientSDK/releases/latest/download/embed.global.js)
+   (or build it: `npm install && npm run build`, output `sdk/embed-js/dist/embed.global.js`), put it in
+   your static files and load it with a `<script>` tag. Add a container with a height, then:
    ```js
    HandOfClient.configure({ apiBaseUrl, embedOrigin });
    HandOfClient.mount(container, { hostId, tenantId, packageId, slotId, tokenUrl: "hoc/token" });
    ```
+   `tokenUrl` is passed to `fetch` (with cookies), so a relative value resolves against the page URL:
+   `"hoc/token"` works under a sub-path, `"/hoc/token"` only when the app is at the site root.
 2. **Add a same-origin token endpoint** (`tokenUrl`). It identifies the signed-in user from *your own*
    session, then calls `POST {platform}/host/v1/embed-token` with header `x-api-key: <host API key>` and
    JSON `{tenantId, userId, packageId, slotId}`, and returns `{token, expiresAt, userId, displayName?}`.

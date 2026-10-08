@@ -1,0 +1,30 @@
+name: release
+
+# Tag vX.Y.Z -> GitHub release with the prebuilt host-side embed.js attached, so integrators can
+# download it instead of building this repo.
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  embed-js:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npm run build
+      - name: Publish release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp sdk/embed-js/dist/embed.global.js embed.global.js
+          sha256sum embed.global.js > embed.global.js.sha256
+          gh release create "$GITHUB_REF_NAME" embed.global.js embed.global.js.sha256 \
+            --title "$GITHUB_REF_NAME" --generate-notes
