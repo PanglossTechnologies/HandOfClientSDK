@@ -56,7 +56,8 @@ roster. The suite sends only `application/json` bodies and cookies, so the modul
 those through in the test profile (the contract says the site applies its normal CSRF policy; turn that off
 or allow the cookie-only test client).
 
-`selftest/reference-host.mjs` is a complete working example of the profile.
+`selftest/reference-host.mjs` is a complete working example of the profile, and so are the three apps in
+[`../python/conformance`](../python/conformance) (Flask, Django, FastAPI over `handofclient`).
 
 ## What it covers
 

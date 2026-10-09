@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "handofclient"
+version = "0.1.0"
+description = "HandOfClient host module for Python: request, build and roll out per-user site features (Flask, Django, FastAPI; SQLite, PostgreSQL, MySQL)."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.9"
+dependencies = []
+keywords = ["handofclient", "flask", "django", "fastapi", "plugins"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Framework :: Flask",
+  "Framework :: Django",
+  "Framework :: FastAPI",
+  "Typing :: Typed",
+]
+
+[project.optional-dependencies]
+flask = ["flask>=2.2"]
+django = ["django>=4.2"]
+fastapi = ["fastapi>=0.100"]
+test = ["pytest", "flask>=2.2", "django>=4.2", "fastapi>=0.100", "uvicorn", "waitress", "httpx"]
+
+[project.urls]
+Homepage = "https://github.com/PanglossTechnologies/HandOfClientSDK"
+Source = "https://github.com/PanglossTechnologies/HandOfClientSDK/tree/main/host-modules/python"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+handofclient = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

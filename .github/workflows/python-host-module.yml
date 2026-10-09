@@ -1,0 +1,124 @@
+name: python-host-module
+
+# Tests the Python host module (host-modules/python) and publishes it to PyPI.
+#   * every push / PR touching it: unit tests + the CL-16 conformance suite under Flask, Django and FastAPI
+#     (SQLite), then the same suite against real PostgreSQL and MySQL servers
+#   * tag host-python-vX.Y.Z (must equal the version in pyproject.toml): build + publish to PyPI through
+#     Trusted Publishing (OIDC, no stored token). One-time setup on pypi.org: add a trusted publisher for the
+#     project "handofclient": repo PanglossTechnologies/HandOfClientSDK, workflow python-host-module.yml,
+#     environment "pypi".
+on:
+  push:
+    branches: [main]
+    tags: ["host-python-v*.*.*"]
+    paths:
+      - "host-modules/python/**"
+      - "host-modules/conformance/**"
+      - "openapi/**"
+      - ".github/workflows/python-host-module.yml"
+  pull_request:
+    paths:
+      - "host-modules/python/**"
+      - "host-modules/conformance/**"
+      - "openapi/**"
+      - ".github/workflows/python-host-module.yml"
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: host-modules/python
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -e ".[test]"
+      - run: pytest -q
+
+  conformance-db:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        framework: [flask, django, fastapi]
+        db: [postgres, mysql]
+    services:
+      postgres:
+        image: postgres:16
+        env: { POSTGRES_PASSWORD: hoc, POSTGRES_DB: hoc }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+      mysql:
+        image: mysql:8
+        env: { MYSQL_ROOT_PASSWORD: hoc, MYSQL_DATABASE: hoc }
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -phoc" --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[test]" "psycopg[binary]" pymysql cryptography
+      - name: Conformance suite on ${{ matrix.db }}
+        env:
+          HOC_CONFORMANCE_DATABASE_URL: ${{ matrix.db == 'postgres' && 'postgresql://postgres:hoc@127.0.0.1:5432/hoc' || 'mysql://root:hoc@127.0.0.1:3306/hoc' }}
+        run: python conformance/run_conformance.py ${{ matrix.framework }} --db env --reporter spec
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build twine
+      - run: python -m build
+      - run: twine check dist/*
+      - name: Tag matches the package version
+        if: startsWith(github.ref, 'refs/tags/host-python-v')
+        run: |
+          want="${GITHUB_REF_NAME#host-python-v}"
+          have="$(python - <<'PY'
+          import tomllib
+          print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])
+          PY
+          )"
+          test "$want" = "$have" || { echo "tag $want != pyproject $have"; exit 1; }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: host-modules/python/dist/
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/host-python-v')
+    needs: [test, conformance-db, build]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/

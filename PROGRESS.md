@@ -97,3 +97,23 @@ Decisions: suite never resets the module's DB (unique ids/paths per test); where
 reply 403/404, token for a feature the user turned off) the suite accepts both. Known gaps: legacy token call without
 `featureId`, CSRF, retry timing after a platform outage; CI wiring is CL-27; the embed-js fake-site could be replaced by this
 fake later.
+
+## 2026-10-09 - CL-17 Python host module
+
+New `host-modules/python/` (PyPI name `handofclient`, Python 3.9+, no required dependencies): `HostModule` serves `hoc/token`,
+`hoc/api/*` and `hoc/webhook` framework-neutrally; Flask (`blueprint`), Django (`urls`) and FastAPI (`router`) adapters are one-liners.
+`SqlStorage` (SQLite / PostgreSQL / MySQL via any DB-API connection factory) owns `hoc_*` tables with an idempotent migration runner
+behind a small rule-free `Storage`/`StorageTx` interface; platform client is stdlib `urllib`. The site supplies `get_current_user`,
+`is_admin`, `find_users` (+ optional `user_exists`).
+
+Proof: the CL-16 suite passes 97/97 under all three frameworks (`conformance/run_conformance.py`, also run by `pytest`) on SQLite and
+on PostgreSQL (embedded `pgserver`); 60 pytest unit tests (webhook test vector, storage, rollback, negative cases, adapters) also pass on
+Python 3.9. CI (`.github/workflows/python-host-module.yml`) adds real PostgreSQL and MySQL services and a tag-triggered
+`host-python-vX.Y.Z` PyPI Trusted Publishing job.
+
+Decisions: webhook dedupe + apply share one transaction (a failed apply is retried, not swallowed); builds the platform could not take are
+retried by background timers and `retry_unstarted_builds()`; the requester's email is stored so retried builds match the first attempt;
+Django's webhook route is always CSRF-exempt, the browser routes follow the site's CSRF policy unless `csrf_exempt=True`.
+
+Known gaps: MySQL has only been exercised by dialect unit tests locally (the CI MySQL job is its first live run); PyPI publishing needs a
+trusted-publisher entry on pypi.org (Needs Human); `samples/hosts/python-flask` still shows only the legacy token endpoint.
