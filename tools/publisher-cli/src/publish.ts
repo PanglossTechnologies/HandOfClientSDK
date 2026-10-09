@@ -1,6 +1,6 @@
 import { createHocClient } from "@handofclient/api";
 import {
-  Channel, FilterTransformKind, HookKind, SlotKind, UpdatePolicyKind,
+  Channel, FeatureKind, FilterTransformKind, HookKind, RenderMode, SlotKind, UpdatePolicyKind,
 } from "@handofclient/gen-ts/handofclient/v1/package_registry_pb";
 import { readFile } from "node:fs/promises";
 import type { AuthorHookDecl, AuthorManifest } from "./authorManifest.js";
@@ -137,5 +137,8 @@ function toProtoManifest(manifest: AuthorManifest, bundleHash: string, fileInteg
       channel: manifest.updatePolicy?.kind === "channel" && manifest.updatePolicy.channel === "beta" ? Channel.BETA : Channel.STABLE,
     },
     strictCsp: manifest.strictCsp ?? false,
+    render: manifest.render === "inject" ? RenderMode.INJECT : RenderMode.IFRAME,
+    kind: { slot: FeatureKind.SLOT, "page-override": FeatureKind.PAGE_OVERRIDE, "new-page": FeatureKind.NEW_PAGE }[manifest.kind ?? "slot"],
+    path: manifest.path ?? "",
   };
 }

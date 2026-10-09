@@ -13,7 +13,7 @@ export interface PackedFile {
   relativePath: string;
   absolutePath: string;
   sizeBytes: number;
-  sri: string; // "sha384-<base64>"
+  sri: string; // "sha256-<base64>"
 }
 
 export interface PackedBundle {
@@ -44,7 +44,7 @@ export async function packDirectory(bundleDir: string): Promise<PackedBundle> {
     if (totalBytes > MAX_UNCOMPRESSED_BYTES) {
       throw new Error(`Bundle exceeds the ${MAX_UNCOMPRESSED_BYTES / (1024 * 1024)} MB uncompressed cap`);
     }
-    const sri = `sha384-${createHash("sha384").update(contents).digest("base64")}`;
+    const sri = `sha256-${createHash("sha256").update(contents).digest("base64")}`;
     files.push({ relativePath, absolutePath, sizeBytes: contents.length, sri });
     zip.addBuffer(contents, relativePath);
   }

@@ -36,12 +36,37 @@ message SlotDecl {
   string host_panel_id = 9;
 }
 
+// How the browser runs a version's entry point. UNSPECIFIED is treated as IFRAME, so every manifest
+// published before this field existed is unchanged.
+enum RenderMode {
+  RENDER_MODE_UNSPECIFIED = 0;
+  // Sandboxed iframe on the bundle origin (the original embed protocol).
+  RENDER_MODE_IFRAME = 1;
+  // The entry is a JS module the host page loads as <script type="module" integrity=...>; it runs in
+  // the host page itself. The platform serves such bundles with CORS for the host's registered origins
+  // and without the iframe-only CSP.
+  RENDER_MODE_INJECT = 2;
+}
+
+// Where a customer-facing feature (customization-loop design) attaches to the host site.
+enum FeatureKind {
+  FEATURE_KIND_UNSPECIFIED = 0;
+  // A region of an existing page (the manifest's slots say which).
+  FEATURE_KIND_SLOT = 1;
+  // Replaces or rewrites the page at Manifest.path.
+  FEATURE_KIND_PAGE_OVERRIDE = 2;
+  // A new page mounted at Manifest.path.
+  FEATURE_KIND_NEW_PAGE = 3;
+}
+
 message BundleRef {
   // slotName -> relative path in the bundle.
   map<string, string> entry_points = 1;
   // sha256 of the canonical bundle archive.
   string bundle_hash = 2;
-  // relative path -> sha256 SRI hash, recorded at upload.
+  // relative path -> sha256 SRI hash ("sha256-<base64>"). Recorded by the platform at publish time for
+  // every entry point (any value the publisher sends is overwritten); this is what a host puts in the
+  // integrity attribute of the <script type="module"> tag for an inject version.
   map<string, string> file_integrity = 3;
 }
 
@@ -170,6 +195,13 @@ message Manifest {
   // non-strict manifest would retroactively weaken every earlier version's already-served/cached CSP
   // (B25). See PublishVersion / PackageRecord.StrictCsp for the package-level default this also sets.
   bool strict_csp = 15;
+
+  // How the entry point runs. Unspecified = IFRAME (existing behaviour).
+  RenderMode render = 16;
+  // What the feature attaches to. Unspecified = SLOT.
+  FeatureKind kind = 17;
+  // Site path for PAGE_OVERRIDE / NEW_PAGE (e.g. "/orders"); empty for SLOT.
+  string path = 18;
 }
 
 // --- Registry-side records ---

@@ -40,6 +40,81 @@ proto3.util.setEnumType(SlotKind, "handofclient.v1.SlotKind", [
 ]);
 
 /**
+ * How the browser runs a version's entry point. UNSPECIFIED is treated as IFRAME, so every manifest
+ * published before this field existed is unchanged.
+ *
+ * @generated from enum handofclient.v1.RenderMode
+ */
+export enum RenderMode {
+  /**
+   * @generated from enum value: RENDER_MODE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * Sandboxed iframe on the bundle origin (the original embed protocol).
+   *
+   * @generated from enum value: RENDER_MODE_IFRAME = 1;
+   */
+  IFRAME = 1,
+
+  /**
+   * The entry is a JS module the host page loads as <script type="module" integrity=...>; it runs in
+   * the host page itself. The platform serves such bundles with CORS for the host's registered origins
+   * and without the iframe-only CSP.
+   *
+   * @generated from enum value: RENDER_MODE_INJECT = 2;
+   */
+  INJECT = 2,
+}
+// Retrieve enum metadata with: proto3.getEnumType(RenderMode)
+proto3.util.setEnumType(RenderMode, "handofclient.v1.RenderMode", [
+  { no: 0, name: "RENDER_MODE_UNSPECIFIED" },
+  { no: 1, name: "RENDER_MODE_IFRAME" },
+  { no: 2, name: "RENDER_MODE_INJECT" },
+]);
+
+/**
+ * Where a customer-facing feature (customization-loop design) attaches to the host site.
+ *
+ * @generated from enum handofclient.v1.FeatureKind
+ */
+export enum FeatureKind {
+  /**
+   * @generated from enum value: FEATURE_KIND_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * A region of an existing page (the manifest's slots say which).
+   *
+   * @generated from enum value: FEATURE_KIND_SLOT = 1;
+   */
+  SLOT = 1,
+
+  /**
+   * Replaces or rewrites the page at Manifest.path.
+   *
+   * @generated from enum value: FEATURE_KIND_PAGE_OVERRIDE = 2;
+   */
+  PAGE_OVERRIDE = 2,
+
+  /**
+   * A new page mounted at Manifest.path.
+   *
+   * @generated from enum value: FEATURE_KIND_NEW_PAGE = 3;
+   */
+  NEW_PAGE = 3,
+}
+// Retrieve enum metadata with: proto3.getEnumType(FeatureKind)
+proto3.util.setEnumType(FeatureKind, "handofclient.v1.FeatureKind", [
+  { no: 0, name: "FEATURE_KIND_UNSPECIFIED" },
+  { no: 1, name: "FEATURE_KIND_SLOT" },
+  { no: 2, name: "FEATURE_KIND_PAGE_OVERRIDE" },
+  { no: 3, name: "FEATURE_KIND_NEW_PAGE" },
+]);
+
+/**
  * @generated from enum handofclient.v1.UpdatePolicyKind
  */
 export enum UpdatePolicyKind {
@@ -314,7 +389,9 @@ export class BundleRef extends Message<BundleRef> {
   bundleHash = "";
 
   /**
-   * relative path -> sha256 SRI hash, recorded at upload.
+   * relative path -> sha256 SRI hash ("sha256-<base64>"). Recorded by the platform at publish time for
+   * every entry point (any value the publisher sends is overwritten); this is what a host puts in the
+   * integrity attribute of the <script type="module"> tag for an inject version.
    *
    * @generated from field: map<string, string> file_integrity = 3;
    */
@@ -726,6 +803,27 @@ export class Manifest extends Message<Manifest> {
    */
   strictCsp = false;
 
+  /**
+   * How the entry point runs. Unspecified = IFRAME (existing behaviour).
+   *
+   * @generated from field: handofclient.v1.RenderMode render = 16;
+   */
+  render = RenderMode.UNSPECIFIED;
+
+  /**
+   * What the feature attaches to. Unspecified = SLOT.
+   *
+   * @generated from field: handofclient.v1.FeatureKind kind = 17;
+   */
+  kind = FeatureKind.UNSPECIFIED;
+
+  /**
+   * Site path for PAGE_OVERRIDE / NEW_PAGE (e.g. "/orders"); empty for SLOT.
+   *
+   * @generated from field: string path = 18;
+   */
+  path = "";
+
   constructor(data?: PartialMessage<Manifest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -749,6 +847,9 @@ export class Manifest extends Message<Manifest> {
     { no: 13, name: "update_policy", kind: "message", T: UpdatePolicy },
     { no: 14, name: "hooks", kind: "message", T: HookDecl, repeated: true },
     { no: 15, name: "strict_csp", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 16, name: "render", kind: "enum", T: proto3.getEnumType(RenderMode) },
+    { no: 17, name: "kind", kind: "enum", T: proto3.getEnumType(FeatureKind) },
+    { no: 18, name: "path", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Manifest {

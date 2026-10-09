@@ -52,6 +52,13 @@ export interface AuthorManifest {
    * whose bundles must have no network access at all (e.g. untrusted/AI-generated content), not for
    * normal plugins that just want a narrower egress allowlist (use permissions.egressHosts for that). */
   strictCsp?: boolean;
+  /** See Manifest.render. "iframe" (default) or "inject": the entry point is a JS module the host page loads
+   * with <script type="module" integrity=...>. Inject cannot be combined with strictCsp. */
+  render?: "iframe" | "inject";
+  /** See Manifest.kind. Default "slot". */
+  kind?: "slot" | "page-override" | "new-page";
+  /** Site path (starting with "/") for kind "page-override" / "new-page". */
+  path?: string;
 }
 
 const SEMVER_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
@@ -97,6 +104,13 @@ export function validateAuthorManifest(manifest: AuthorManifest, bundleFiles: Re
   }
 
   validateHooks(manifest, require);
+
+  if (manifest.kind === "page-override" || manifest.kind === "new-page") {
+    require(!!manifest.path && manifest.path.startsWith("/"), "path", `kind "${manifest.kind}" requires a path starting with "/"`);
+  }
+  if (manifest.render === "inject") {
+    require(!manifest.strictCsp, "render", `render "inject" cannot be combined with strictCsp`);
+  }
 
   if (manifest.updatePolicy?.kind === "channel") {
     require(!!manifest.updatePolicy.channel, "updatePolicy.channel", `kind "channel" requires a channel value`);
