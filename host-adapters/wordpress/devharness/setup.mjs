@@ -81,8 +81,12 @@ async function download(url, dest) {
 /** Windows ships bsdtar as tar.exe. Never Compress-Archive: it writes backslash ZIP entries. */
 function untar(zip, into) {
   // Full path on Windows: a GNU tar earlier on PATH (Git for Windows) reads "Z:" as a remote host.
-  const tarBin = process.platform === "win32" ? "C:\\Windows\\System32\\tar.exe" : "tar";
-  execFileSync(tarBin, ["-xf", zip, "-C", into], { stdio: "inherit" });
+  if (process.platform !== "win32") {
+    // GNU tar cannot read zip; unzip ships on GitHub runners and most Linux/macOS hosts.
+    execFileSync("unzip", ["-q", "-o", zip, "-d", into], { stdio: "inherit" });
+    return;
+  }
+  execFileSync("C:\\Windows\\System32\\tar.exe", ["-xf", zip, "-C", into], { stdio: "inherit" });
 }
 
 function php(scriptArgs, options = {}) {

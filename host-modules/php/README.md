@@ -136,4 +136,4 @@ binary if it is not `php` on the path, `COMPOSER_BIN` for the Laravel setup.
 
 `conformance/` holds the tiny apps that run the language-neutral suite from
 [`host-modules/conformance`](../conformance/README.md) against this package; they double as complete working
-examples of each adapter. CI also runs the suite against real PostgreSQL and MySQL servers and Laravel 11, 12 and 13.
+examples of each adapter. CI also runs the suite against real PostgreSQL and MySQL servers and Laravel 12 and 13.

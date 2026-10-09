@@ -11,7 +11,7 @@ name: ci
 # Covered by their own workflows (path-filtered, and they hold the publish jobs):
 #   node-host-module, python-host-module, php-host-module   unit tests + the conformance suite for every host module and
 #                                                           framework adapter (Express, Fastify, node:http, Flask, Django,
-#                                                           FastAPI, plain PHP, Laravel 11-13) on SQLite, PostgreSQL, MySQL
+#                                                           FastAPI, plain PHP, Laravel 12-13) on SQLite, PostgreSQL, MySQL
 #   lint-public-repo                                        banned terms + broken links
 #   release                                                 v*.*.* tags: GitHub release + npm publish
 on:

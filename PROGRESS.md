@@ -227,3 +227,6 @@ TS client `createHocClient` gained `onBehalfOfHost` (sends `x-hoc-host` on every
 ## 2026-10-09 HOCSDK-10 WordPress harness off Windows, CI job
 
 `devharness/php-path.mjs` picks the PHP: the downloaded `.wp-local/php` build on Windows, otherwise `php` from PATH (or `HOC_PHP`); setup.mjs skips the PHP/cacert download, php.ini and openssl.cnf in that case and symlinks the plugin instead of `mklink /J`; wp-instance.mjs uses the same resolver. New `wordpress-conformance` job in ci.yml runs setup, run-conformance and browser.test. Windows re-verified (29 PHP tests, conformance PASS, browser 6/6). Known gap: the Linux run is unproven until the first Actions run.
+
+## 2026-10-09
+First Linux Actions run: WordPress harness now unzips with `unzip` off Windows (GNU tar cannot read zip); Laravel 11 dropped from the PHP matrix because composer blocks every installable 11.x on security advisories (supported: 12, 13).

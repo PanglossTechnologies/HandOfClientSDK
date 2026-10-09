@@ -2,7 +2,7 @@ name: php-host-module
 
 # Tests the PHP host module (host-modules/php) and publishes it to Packagist as handofclient/host.
 #   * every push / PR touching it: PHPUnit on PHP 8.1-8.4, the CL-16 conformance suite under plain PHP and under
-#     Laravel 11, 12 and 13 (SQLite), then the same suite against real PostgreSQL and MySQL servers
+#     Laravel 12 and 13 (SQLite), then the same suite against real PostgreSQL and MySQL servers
 #   * tag host-php-vX.Y.Z: Packagist needs composer.json at the root of a repository, so the host-modules/php subtree is
 #     split off and pushed (with tag vX.Y.Z) to the read-only mirror PanglossTechnologies/handofclient-php, which is the
 #     repository registered on packagist.org (it then picks the tag up through its GitHub hook).
@@ -58,7 +58,6 @@ jobs:
         include:
           - { name: plain, php: "8.1", laravel: "", frameworks: "plain" }
           - { name: plain, php: "8.4", laravel: "", frameworks: "plain" }
-          - { name: laravel 11, php: "8.2", laravel: "11", frameworks: "laravel laravel-csrf" }
           - { name: laravel 12, php: "8.3", laravel: "12", frameworks: "laravel laravel-csrf" }
           - { name: laravel 13, php: "8.4", laravel: "13", frameworks: "laravel laravel-csrf" }
     name: conformance (${{ matrix.name }}, php ${{ matrix.php }})
