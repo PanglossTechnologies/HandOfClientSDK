@@ -25,8 +25,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp sdk/embed-js/dist/embed.global.js embed.global.js
+          cp sdk/embed-js/dist/hoc-head.min.js hoc-head.min.js
           sha256sum embed.global.js > embed.global.js.sha256
-          gh release create "$GITHUB_REF_NAME" embed.global.js embed.global.js.sha256 \
+          gh release create "$GITHUB_REF_NAME" embed.global.js embed.global.js.sha256 hoc-head.min.js \
             --title "$GITHUB_REF_NAME" --generate-notes
 
   # npm publish via Trusted Publishing (OIDC, no stored token). Needs a trusted publisher configured on

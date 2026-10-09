@@ -17,6 +17,7 @@
       "types": "./dist/host/index.d.ts",
       "import": "./dist/host/index.js"
     },
+    "./hoc-head.js": "./dist/hoc-head.js",
     "./plugin": {
       "types": "./dist/plugin/index.d.ts",
       "import": "./dist/plugin/index.js"
@@ -27,13 +28,15 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json && node build.mjs",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test \"test/**/*.test.mjs\""
   },
   "dependencies": {
     "@handofclient/api": "^0.1.0"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",
+    "playwright-core": "^1.64.0",
     "typescript": "^5.9.3"
   }
 }

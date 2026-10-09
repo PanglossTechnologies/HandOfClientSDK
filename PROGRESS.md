@@ -24,3 +24,19 @@ Contract decisions made while writing (platform and host modules must implement 
 
 Known gaps: errors use two shapes on the platform today (`{error: text}` on older endpoints, `{error: code,
 message}` on builds); activation webhooks use `event` while build webhooks use `type`.
+
+## 2026-10-09 CL-12 embed.js page lookup
+
+`sdk/embed-js/src/host/` split into config/token/mount/inject/autoMount modules. Added `sitePrefix` config, `featureId`
+on the token URL (no-param `mount()` unchanged, `tokenUrl` now defaults to `<sitePrefix>token`), `HandOfClient.autoMount`
+(resolve, then inject / full-window iframe / slot), the inject loader (module script with `integrity`, `csp-blocked`
+and `inject-load-failed` errors) and `hoc-head.js` (+ minified, shipped as a release asset). Documented in
+`docs/page-lookup.md`. Covered by a real-browser suite (`npm test -w @handofclient/embed-js`, playwright-core against two
+local servers, desktop + iPhone emulation, includes a no-flash check with a control that proves the detector works).
+
+Decisions: `hostId`/`tenantId` for the plugin context come from the unverified embed JWT claims (`hid`, `tid`), so
+`resolve` needs no contract change; inject features load one at a time and take `window.HandOfClientInject.pending`
+synchronously; `timeoutMs` bounds only the resolve lookup, `loadTimeoutMs` (default 3000) bounds loading what it returned.
+
+Known gap: the plugin-side SDK (`hoc.init`) does not yet consume the inject handoff, so injected bundles must read
+`HandOfClientInject.pending` themselves (follow-up task).
