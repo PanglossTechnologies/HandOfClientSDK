@@ -186,6 +186,22 @@ exists and its content is sealed," activate is "this tenant should be served it"
 distribute, only a pointer to flip; instant rollback is just activating a different already-published
 version).
 
+### Publishing an inject bundle
+
+An inject version is one JS module the host page loads with `<script type="module" integrity="...">`, so the
+manifest sets `"render": "inject"` (optionally `"kind": "page-override"` / `"new-page"` with a `"path"` such as
+`"/orders"`) and `entryPoints` names a single `.js` / `.mjs` file (several slot ids may point at it). Bundle every
+dependency into that file: only it is covered by the integrity hash, so `hoc-publish` rejects an entry that
+imports another module. `render: "inject"` cannot be combined with `strictCsp`.
+
+`hoc-publish` prints the `sha256-...` integrity of each entry file (also on `--dry-run`) and, after publishing,
+checks it against the value the platform recorded. For build automation:
+
+- `--json` prints one result object (`packageId`, `version`, `render`, `bundleHash`, `entries[]`, `published`) to
+  stdout; progress goes to stderr. A failure exits 1.
+- `--host-id <id>` publishes as that host when `--api-key` is the platform super-admin key (sent as `x-hoc-host`).
+- `HOC_API_KEY`, `HOC_API_BASE_URL` and `HOC_HOST_ID` can replace the flags, keeping keys out of command lines.
+
 ## Troubleshooting
 
 - **"entry point file ... was not found in the bundle"** - `entryPoints` paths are relative to your

@@ -4,26 +4,51 @@ import {
 } from "@handofclient/gen-ts/handofclient/v1/package_registry_pb";
 import { readFile } from "node:fs/promises";
 import type { AuthorHookDecl, AuthorManifest } from "./authorManifest.js";
-import { validateAuthorManifest } from "./authorManifest.js";
-import { fileExistsAndIsDirectory, packDirectory, scanForHygieneIssues } from "./bundle.js";
+import { injectEntryFiles, normalizeBundlePath, validateAuthorManifest } from "./authorManifest.js";
+import { fileExistsAndIsDirectory, packDirectory, scanForHygieneIssues, scanInjectEntry } from "./bundle.js";
 
 export interface PublishOptions {
   manifestPath: string;
   bundleDir: string;
   apiBaseUrl: string;
   apiKey: string;
+  /** Sent as x-hoc-host. Required when apiKey is the platform super-admin key (build automation publishing
+   * on a host's behalf); ignored by the platform for a host's own key. */
+  hostId?: string;
   /** Print what would happen without uploading/publishing anything. */
   dryRun?: boolean;
 }
 
 export class PublishError extends Error {}
 
-export async function publish(options: PublishOptions, log: (line: string) => void = console.log): Promise<void> {
+export interface PublishedEntry {
+  slotId: string;
+  path: string;
+  /** "sha256-<base64>" of the entry file - the value for a <script integrity=...> attribute. */
+  integrity: string;
+}
+
+export interface PublishResult {
+  packageId: string;
+  version: string;
+  render: "iframe" | "inject";
+  bundleHash: string;
+  entries: PublishedEntry[];
+  /** False for a dry run. */
+  published: boolean;
+}
+
+export async function publish(options: PublishOptions, log: (line: string) => void = console.log): Promise<PublishResult> {
   if (!(await fileExistsAndIsDirectory(options.bundleDir))) {
     throw new PublishError(`Bundle directory not found: ${options.bundleDir}`);
   }
 
-  const manifest = JSON.parse(await readFile(options.manifestPath, "utf8")) as AuthorManifest;
+  let manifest: AuthorManifest;
+  try {
+    manifest = JSON.parse(await readFile(options.manifestPath, "utf8")) as AuthorManifest;
+  } catch (error) {
+    throw new PublishError(`Could not read manifest ${options.manifestPath}: ${error instanceof Error ? error.message : String(error)}`);
+  }
 
   log(`Packing bundle from ${options.bundleDir} ...`);
   const packed = await packDirectory(options.bundleDir);
@@ -36,16 +61,33 @@ export async function publish(options: PublishOptions, log: (line: string) => vo
     throw new PublishError(`Manifest validation failed with ${validationIssues.length} issue(s)`);
   }
 
+  const render = manifest.render === "inject" ? "inject" : "iframe";
+  const sriByPath = new Map(packed.files.map((f) => [f.relativePath, f.sri]));
+  const entries: PublishedEntry[] = Object.entries(manifest.entryPoints).map(([slotId, path]) => {
+    const normalized = normalizeBundlePath(path);
+    return { slotId, path: normalized, integrity: sriByPath.get(normalized)! };
+  });
+
   const hygieneIssues = await scanForHygieneIssues(packed.files);
+  if (render === "inject") {
+    for (const file of injectEntryFiles(manifest)) {
+      hygieneIssues.push(...(await scanInjectEntry(packed.files.find((f) => f.relativePath === file)!)));
+    }
+  }
   if (hygieneIssues.length > 0) {
     for (const issue of hygieneIssues) log(`  HYGIENE ISSUE [${issue.file}]: ${issue.message}`);
     throw new PublishError(`Bundle failed ${hygieneIssues.length} hygiene check(s) - see design doc "6. Relationship to DotNetShared.Extensibility"`);
   }
   log("Manifest and hygiene checks passed.");
+  for (const entry of entries) log(`  ${render} entry ${entry.slotId}: ${entry.path}  integrity ${entry.integrity}`);
+
+  const result: PublishResult = {
+    packageId: manifest.packageId, version: manifest.version, render, bundleHash: packed.bundleHash, entries, published: false,
+  };
 
   if (options.dryRun) {
     log("Dry run - not uploading or publishing.");
-    return;
+    return result;
   }
 
   log("Uploading bundle ...");
@@ -68,11 +110,30 @@ export async function publish(options: PublishOptions, log: (line: string) => vo
   for (const file of packed.files) fileIntegrity[file.relativePath] = file.sri;
 
   log(`Publishing ${manifest.packageId}@${manifest.version} ...`);
-  await client.packageRegistry.publishVersion({
-    bundleUploadRef: uploadedHash,
-    manifest: toProtoManifest(manifest, uploadedHash, fileIntegrity),
-  });
+  let response;
+  try {
+    response = await client.packageRegistry.publishVersion({
+      bundleUploadRef: uploadedHash,
+      manifest: toProtoManifest(manifest, uploadedHash, fileIntegrity),
+    }, options.hostId ? { headers: { "x-hoc-host": options.hostId } } : undefined);
+  } catch (error) {
+    // ConnectError messages already read "[code] detail" (e.g. "[already_exists] ... is already published").
+    throw new PublishError(`PublishVersion failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  // The platform records its own sha256 SRI for every inject entry point. It hashes the same bytes we
+  // did, so a difference means the stored bundle is not what we packed - do not report success.
+  if (render === "inject") {
+    const recorded = response.version?.manifest?.bundle?.fileIntegrity ?? {};
+    for (const entry of entries) {
+      const platformValue = recorded[entry.path];
+      if (platformValue !== undefined && platformValue !== entry.integrity) {
+        throw new PublishError(`Published, but the platform recorded integrity ${platformValue} for ${entry.path} while the local file hashes to ${entry.integrity}`);
+      }
+    }
+  }
   log("Published.");
+  return { ...result, published: true };
 }
 
 function toProtoTransform(transform: AuthorHookDecl["transform"]) {

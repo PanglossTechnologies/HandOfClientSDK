@@ -85,6 +85,30 @@ export async function scanForHygieneIssues(files: PackedFile[]): Promise<Hygiene
   return issues;
 }
 
+// Static `import x from "y"` / `import "y"`, `export ... from "y"`, and `import("y")` with a literal
+// specifier. Bounded quantifiers keep the scan linear on large minified bundles.
+const IMPORT_SPECIFIER_PATTERNS = [
+  /\bimport\s*(?:[\w$*{}\s,]{1,2000}?\s*from\s*)?(["'])([^"'\n]{1,500})\1/g,
+  /\bexport\s*(?:\*(?:\s*as\s+[\w$]+)?|\{[^}]{0,2000}\})\s*from\s*(["'])([^"'\n]{1,500})\1/g,
+  /\bimport\s*\(\s*(["'`])([^"'`\n]{1,500})\1\s*\)/g,
+];
+
+/** An inject entry is the only file the browser verifies against the published sha256, so it must not
+ * pull in any other module: a relative import would load unverified bytes, and a bare specifier
+ * ("lodash") cannot resolve in a browser at all. Bundle dependencies into the one file instead.
+ * Hygiene only (a regex over source), like scanForHygieneIssues. */
+export async function scanInjectEntry(entry: PackedFile): Promise<HygieneIssue[]> {
+  const text = await readFile(entry.absolutePath, "utf8");
+  const specifiers = new Set<string>();
+  for (const pattern of IMPORT_SPECIFIER_PATTERNS) {
+    for (const match of text.matchAll(pattern)) specifiers.add(match[2]);
+  }
+  return [...specifiers].map((specifier) => ({
+    file: entry.relativePath,
+    message: `imports "${specifier}" - an inject entry must be one self-contained module (only this file is covered by the integrity hash); bundle all dependencies into it`,
+  }));
+}
+
 function scanForSecretPatterns(text: string): string[] {
   const found: string[] = [];
   if (/-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----/.test(text)) found.push("contains an embedded private key");

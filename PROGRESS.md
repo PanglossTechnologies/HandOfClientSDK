@@ -160,3 +160,11 @@ empty `[]` vs `{}` is lost by `json_decode(..., true)`, so snapshot and dataSour
 Known gaps: Laravel 11 and PHP 8.2/8.4 are first exercised by CI (local runs: PHP 8.1 and 8.3, Laravel 12 and 13); MySQL was verified on MariaDB 11.4 only;
 Packagist publishing needs the mirror repo `PanglossTechnologies/handofclient-php`, a write deploy key stored as secret `PHP_SPLIT_DEPLOY_KEY` in the `packagist`
 environment, and the package submitted on packagist.org (Needs Human); `samples/hosts/` has no PHP example yet.
+
+## 2026-10-09 - CL-20 publisher-cli: inject bundles
+
+`hoc-publish` now validates inject versions locally (one `.js`/`.mjs` entry file, no strictCsp, entry must not import other modules since only it is covered by the SRI; page-override/new-page `path` rules mirror the platform's), prints the `sha256-<base64>` integrity of each entry (also on `--dry-run`) and, after publishing, fails if the platform recorded a different value. For build automation it gained `--json` (single result object on stdout), `--host-id` (x-hoc-host, for the super-admin key) and `HOC_API_KEY` / `HOC_API_BASE_URL` / `HOC_HOST_ID`; manifest-read and PublishVersion errors are clean `FAILED:` lines. New `npm test` in `tools/publisher-cli` (33 node:test cases: validation negatives, import scan, iframe and inject publish against a grpc-web stub platform).
+
+Proof against a real dev platform (HandOfClient Platform built from dev, isolated data dir): an iframe bundle and an inject bundle both published with a host key, an inject version published with the super-admin key + `--host-id`, the served `/embed/.../feature.js` bytes hash to the printed integrity, republish gives `already_exists`, and a super-admin key without `--host-id` is rejected.
+
+Known gaps: the import check is a regex over source (an import hidden in a string or built dynamically is not seen); no CI job runs the publisher-cli tests yet.

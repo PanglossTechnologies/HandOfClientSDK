@@ -86,7 +86,7 @@ export function validateAuthorManifest(manifest: AuthorManifest, bundleFiles: Re
   require((manifest.slots ?? []).length > 0, "slots", "at least one slot is required");
 
   for (const [slotId, relativePath] of Object.entries(manifest.entryPoints ?? {})) {
-    require(bundleFiles.has(normalize(relativePath)), `entryPoints.${slotId}`,
+    require(bundleFiles.has(normalizeBundlePath(relativePath)), `entryPoints.${slotId}`,
       `entry point file "${relativePath}" was not found in the bundle`);
   }
 
@@ -105,11 +105,23 @@ export function validateAuthorManifest(manifest: AuthorManifest, bundleFiles: Re
 
   validateHooks(manifest, require);
 
+  require(manifest.kind === undefined || (FEATURE_KINDS as readonly string[]).includes(manifest.kind), "kind",
+    `kind must be one of ${FEATURE_KINDS.join(", ")}, got "${manifest.kind}"`);
+  require(manifest.render === undefined || manifest.render === "iframe" || manifest.render === "inject", "render",
+    `render must be "iframe" or "inject", got "${manifest.render}"`);
+
+  // Same rules as the platform's PublishVersion (ValidateFeatureFields), so a bad path fails locally.
   if (manifest.kind === "page-override" || manifest.kind === "new-page") {
-    require(!!manifest.path && manifest.path.startsWith("/"), "path", `kind "${manifest.kind}" requires a path starting with "/"`);
+    const path = manifest.path ?? "";
+    require(path.startsWith("/") && !path.startsWith("//") && !/[\s?#]/.test(path), "path",
+      `kind "${manifest.kind}" requires a site path starting with a single "/" (no query, fragment or whitespace)`);
+  } else if (manifest.path) {
+    issues.push({ field: "path", message: `path is only valid for kind "page-override" or "new-page"` });
   }
+
   if (manifest.render === "inject") {
     require(!manifest.strictCsp, "render", `render "inject" cannot be combined with strictCsp`);
+    validateInjectEntry(manifest, require);
   }
 
   if (manifest.updatePolicy?.kind === "channel") {
@@ -119,7 +131,31 @@ export function validateAuthorManifest(manifest: AuthorManifest, bundleFiles: Re
   return issues;
 }
 
-const HOOK_NAME_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9_/-]*$/;
+const FEATURE_KINDS = ["slot", "page-override", "new-page"] as const;
+
+/** An inject version is loaded by the host page as one <script type="module" integrity=...>, and the
+ * integrity hash covers that one file only. So the manifest must name exactly one JS file (any number of
+ * slot ids may point at it), not an index.html. Self-containedness of the file itself (no further
+ * imports) is checked on the bundle contents by scanInjectEntry in bundle.ts. */
+function validateInjectEntry(
+  manifest: AuthorManifest,
+  require: (condition: boolean, field: string, message: string) => void,
+): void {
+  const files = injectEntryFiles(manifest);
+  require(files.length <= 1, "entryPoints",
+    `render "inject" takes a single JS module entry, but entryPoints names ${files.length} files: ${files.join(", ")}`);
+  for (const file of files) {
+    require(/\.m?js$/i.test(file), "entryPoints",
+      `render "inject" entry "${file}" must be a JavaScript module (.js or .mjs), not an HTML page`);
+  }
+}
+
+/** Distinct bundle files named by entryPoints, normalized. */
+export function injectEntryFiles(manifest: AuthorManifest): string[] {
+  return [...new Set(Object.values(manifest.entryPoints ?? {}).map(normalizeBundlePath))];
+}
+
+const HOOK_NAME_PATTERN =/^[A-Za-z0-9_][A-Za-z0-9_/-]*$/;
 const FILTER_TRANSFORM_KINDS = ["append", "prepend", "replace", "const"] as const;
 
 /**
@@ -205,7 +241,7 @@ function validateHooks(
   });
 }
 
-function normalize(relativePath: string): string {
+export function normalizeBundlePath(relativePath: string): string {
   return relativePath.replace(/\\/g, "/").replace(/^\.\//, "");
 }
 
