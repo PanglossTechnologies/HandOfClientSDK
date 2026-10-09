@@ -24,8 +24,8 @@
 
 .NOTES
   Requires the plugin's manifest.json to target hostId "wp-local" - that is this harness's own host
-  registration (see docs/wordpress-host.md and PROGRESS.md 2026-08-26). A manifest aimed at a
-  production hostId (e.g. "yayatea") cannot be tested here - EgressGuard blocks private IPs and the
+  registration (see docs/wordpress-host.md). A manifest aimed at a
+  production hostId (e.g. "my-wordpress-site") cannot be tested here - EgressGuard blocks private IPs and the
   publish-time validator rejects "localhost" as an egress host, by design (SSRF protection). That is
   a real, already-known limitation, not something this script works around: expect the smoke check
   below to see a graceful "[permission_denied] ... not in ... allowlist" error from the plugin's own

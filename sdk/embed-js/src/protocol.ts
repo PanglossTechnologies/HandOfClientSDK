@@ -1,5 +1,5 @@
 /**
- * Wire types for the postMessage embed protocol - see docs/postmessage-protocol.md (task C1) for the
+ * Wire types for the postMessage embed protocol - see docs/postmessage-protocol.md for the
  * normative spec. Shared verbatim between the host-side and plugin-side halves of this package so both
  * sides can never drift on envelope/message shape.
  */
@@ -83,7 +83,7 @@ export interface InitPayload {
   launchParams: Record<string, string>;
   /** Platform API base URL for hoc.api/hoc.storage/hoc.http (see plugin/index.ts) - the host already
    * knows this from its own HandOfClient.configure() call, so the plugin never has to guess or hardcode
-   * a domain (which would break the moment embed/API origins are split across subdomains - see D0). */
+   * a domain (which would break the moment embed/API origins are split across subdomains). */
   apiBaseUrl: string;
 }
 

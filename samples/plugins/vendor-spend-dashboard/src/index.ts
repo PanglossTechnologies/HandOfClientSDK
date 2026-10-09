@@ -27,13 +27,13 @@ function escapeHtml(value: string): string {
 // This plugin has no storage/egress permissions (see manifest.json) - it is deliberately a pure,
 // read-only rendering of data the host computes server-side and hands over once via launchParams at
 // mount time (see docs/postmessage-protocol.md's InitPayload.launchParams). This sidesteps a real,
-// still-open design gap found while building this (task E4): there is no sanctioned way for a plugin
+// current limitation: there is no sanctioned way for a plugin
 // to call the HOST's own business-data API directly - the served CSP's connect-src is pinned to the
 // platform API origin only, and the embed JWT's audience is the platform, not the host's API, so a raw
-// cross-origin fetch to warehouse's own /api/v1 would be blocked and wouldn't validate there anyway.
+// cross-origin fetch to the host's own API would be blocked and wouldn't validate there anyway.
 // launchParams (host computes at token-mint time, before the iframe even loads) is the correct v1
-// shape for a read-only "dashboard/report" customization; a live/refreshable data bridge is a real
-// follow-up design question, not something this plugin needed to solve.
+// shape for a read-only "dashboard/report" customization; for live/refreshable data use hoc.http through the egress proxy (see
+// docs/plugin-author-tutorial.md).
 await hoc.init(async (context) => {
   applyTheme(context.theme);
 

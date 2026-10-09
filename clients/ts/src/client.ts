@@ -35,7 +35,7 @@ export interface HocClient {
  * Builds the six typed Platform API clients, all sharing one transport and
  * one auth interceptor (token injection + single-retry refresh - see
  * authInterceptor.ts). This is the `hoc.api` surface referenced in the
- * plugin-side SDK (task C3) and the entry point for the standalone
+ * plugin-side SDK and the entry point for the standalone
  * @handofclient/api package.
  */
 export function createHocClient(options: HocClientOptions): HocClient {
@@ -44,9 +44,7 @@ export function createHocClient(options: HocClientOptions): HocClient {
 
   // grpc-web, not the Connect protocol: ASP.NET Core's Grpc.AspNetCore has
   // no server-side Connect-protocol implementation (no "connect-dotnet"
-  // exists), only real gRPC and grpc-web (via Grpc.AspNetCore.Web). See
-  // services/platform's Program.cs for the matching server-side
-  // AddGrpcWeb()/UseGrpcWeb() setup this transport talks to.
+  // exists), only real gRPC and grpc-web (via Grpc.AspNetCore.Web), which is what the platform serves.
   const transport = createGrpcWebTransport({
     baseUrl: options.baseUrl,
     fetch: options.fetch,

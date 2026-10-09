@@ -12,8 +12,8 @@ defined( 'ABSPATH' ) || exit;
  *
  * Why not gRPC: the platform's native surface is gRPC and grpc-web, and the gRPC PHP client is a PECL
  * extension that essentially no shared or managed WordPress host has installed. The Host Gateway
- * exists precisely so this file can be plain wp_remote_get/post against JSON. See
- * services/platform/HandOfClient.Platform/HostGateway/HostGatewayEndpoints.cs.
+ * exists precisely so this file can be plain wp_remote_get/post against JSON (the /host/v1 REST
+ * surface, described in openapi/platform-host-v1.yaml).
  *
  * Every read is cached, and every failure is negatively cached. That second half matters more than
  * it looks: without it, a platform that is down or slow adds its full timeout to EVERY page view of

@@ -2,7 +2,7 @@
   "name": "@handofclient/publisher-cli",
   "version": "0.0.0",
   "private": true,
-  "description": "Plugin bundle pack/hash/publish CLI (task C4) - GuardTool's successor for HandOfClient; see design doc '6. Relationship to DotNetShared.Extensibility' for why its role is hygiene checks now, not the security boundary.",
+  "description": "Plugin bundle pack/hash/validate/publish CLI. Its hygiene checks catch author mistakes; they are not the security boundary (see docs/plugin-author-tutorial.md).",
   "license": "Apache-2.0",
   "type": "module",
   "bin": {

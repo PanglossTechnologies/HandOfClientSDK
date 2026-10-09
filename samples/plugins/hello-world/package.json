@@ -2,7 +2,7 @@
   "name": "@handofclient/sample-hello-world-plugin",
   "version": "0.1.1",
   "private": true,
-  "description": "E3: minimal real HandOfClient plugin (task E3) - demonstrates hoc.init/hoc.context/hoc.storage/hoc.ui/hoc.resizeAuto end to end. See README.md for the author tutorial.",
+  "description": "Minimal real HandOfClient plugin - demonstrates hoc.init/hoc.context/hoc.storage/hoc.ui/hoc.resizeAuto end to end. See README.md for the author tutorial.",
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {

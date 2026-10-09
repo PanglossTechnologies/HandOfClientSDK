@@ -3,9 +3,9 @@
  * when the platform reports it as expired/expiring. Two independent
  * implementations exist because the token lifecycle differs by caller:
  *
- * - Inside the embed iframe (plugin-side SDK, C3), refresh must transit the
- *   host page via hoc:token-refresh - see design doc "2. postMessage Embed
- *   Protocol + JS SDK". A dead host session should kill plugin API access.
+ * - Inside the embed iframe (plugin-side SDK), refresh must transit the
+ *   host page via hoc:token-refresh (see docs/postmessage-protocol.md).
+ *   A dead host session should kill plugin API access.
  * - A host's own backend (samples/hosts/*) mints tokens directly via
  *   TokenService.IssueEmbedToken using its host API key and has no need to
  *   "refresh" the same way - it just issues a new one.

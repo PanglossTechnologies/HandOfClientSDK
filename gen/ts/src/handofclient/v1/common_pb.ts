@@ -9,7 +9,7 @@ import { Message, proto3 } from "@bufbuild/protobuf";
 /**
  * TenantScope is the {host, tenant, package} triple every tenant-owned
  * resource in the platform is keyed by. Present on every message that reads
- * or writes tenant data - see design doc "3. Platform API Contract".
+ * or writes tenant data.
  *
  * @generated from message handofclient.v1.TenantScope
  */

@@ -10,7 +10,7 @@ import "handofclient/v1/common.proto";
 // Every Platform API call, egress call, token issuance, and activation
 // change lands as an AuditEntry via a shared server interceptor, not
 // per-service opt-in logging. Hosts get read access scoped to their own
-// tenants - see design doc "7. Security Model Summary".
+// tenants.
 
 enum AuditKind {
   AUDIT_KIND_UNSPECIFIED = 0;

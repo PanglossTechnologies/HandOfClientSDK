@@ -9,7 +9,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "description": "HandOfClient postMessage embed protocol SDK (task C1 spec at docs/postmessage-protocol.md): host-side embed.js (drop-in <script> or npm import) plus the plugin-side SDK a plugin author imports inside their own bundle.",
+  "description": "HandOfClient postMessage embed protocol SDK (spec at docs/postmessage-protocol.md): host-side embed.js (drop-in <script> or npm import) plus the plugin-side SDK a plugin author imports inside their own bundle.",
   "license": "Apache-2.0",
   "type": "module",
   "exports": {

@@ -56,8 +56,7 @@ try
     });
 
     // Optional per docs/postmessage-protocol.md section 2 ("Host integration cost is deliberately three
-    // things ... (3) optionally receive webhooks") - see PROGRESS.md for how this sample surfaced that
-    // WebhookDispatcher didn't exist at all until building it. Verifies the HMAC-SHA256 signature so a
+    // things ... (3) optionally receive webhooks"). Verifies the HMAC-SHA256 signature so a
     // stranger who finds this URL can't inject fake activation-change events.
     app.MapPost("/webhooks/handofclient", async (HttpRequest request) =>
     {

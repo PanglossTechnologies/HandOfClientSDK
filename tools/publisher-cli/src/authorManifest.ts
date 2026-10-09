@@ -68,9 +68,8 @@ export interface ValidationIssue {
   message: string;
 }
 
-/** Structural + cross-referential validation against the bundle's actual file list - see design doc
- * "6. Relationship to DotNetShared.Extensibility": "validates the manifest against the schema
- * (declared egress hosts syntactically valid, entry points exist in the bundle)". */
+/** Structural + cross-referential validation against the bundle's actual file list: the manifest must match the
+ * schema (declared egress hosts syntactically valid, entry points exist in the bundle). */
 export function validateAuthorManifest(manifest: AuthorManifest, bundleFiles: ReadonlySet<string>): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   const require = (condition: boolean, field: string, message: string) => {

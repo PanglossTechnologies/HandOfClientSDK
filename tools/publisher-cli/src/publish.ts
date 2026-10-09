@@ -76,7 +76,7 @@ export async function publish(options: PublishOptions, log: (line: string) => vo
   }
   if (hygieneIssues.length > 0) {
     for (const issue of hygieneIssues) log(`  HYGIENE ISSUE [${issue.file}]: ${issue.message}`);
-    throw new PublishError(`Bundle failed ${hygieneIssues.length} hygiene check(s) - see design doc "6. Relationship to DotNetShared.Extensibility"`);
+    throw new PublishError(`Bundle failed ${hygieneIssues.length} hygiene check(s) - see "Hygiene checks" in docs/plugin-author-tutorial.md`);
   }
   log("Manifest and hygiene checks passed.");
   for (const entry of entries) log(`  ${render} entry ${entry.slotId}: ${entry.path}  integrity ${entry.integrity}`);

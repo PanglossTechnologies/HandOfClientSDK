@@ -141,7 +141,7 @@ class HocSdk {
   }
 
   /** The six generated Platform API service clients, pre-authed with the current embed token and
-   * auto-refreshing (see HostRelayTokenProvider) - design doc's "hoc.api". */
+   * auto-refreshing (see HostRelayTokenProvider). */
   get api(): GeneratedHocClient {
     if (!this._api) throw new Error("hoc.api accessed before hoc.init(callback) resolved");
     return this._api;

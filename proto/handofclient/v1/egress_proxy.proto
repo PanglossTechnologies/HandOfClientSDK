@@ -11,8 +11,7 @@ import "handofclient/v1/common.proto";
 // resolves the target host, enforces manifest.egressHosts intersected with
 // the tenant-admin allowlist, blocks private/link-local IP ranges and
 // DNS-rebinding, applies per-tenant rate limits and deadlines, and logs
-// every call to AuditLog. See design doc "8. Open Questions and Risks" #4 -
-// these protections are launch blockers, not optional hardening.
+// every call to AuditLog. These protections are mandatory, not optional hardening.
 
 enum HttpMethod {
   HTTP_METHOD_UNSPECIFIED = 0;

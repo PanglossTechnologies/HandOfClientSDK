@@ -11,9 +11,10 @@ endpoint, optional webhooks - and none of it is .NET-specific. `embed.js` is unc
 pinning is unchanged, the CSP the platform serves with each bundle is unchanged, ES256 embed tokens
 are unchanged. The platform does not know WordPress exists.
 
-**The DotNetShared.Extensibility model does not port, and should not be attempted.** That platform's
-safety comes from the GuardTool: an MSBuild post-build IL scan plus an independent load-time re-scan
-banning `System.IO`, `HttpClient`, reflection and EF. It works because C# compiles to inspectable IL.
+**In-process extension models do not port, and should not be attempted.** A platform can run customer
+code in-process only if it can prove that code is safe, for example by scanning compiled IL for banned
+APIs (file IO, HTTP clients, reflection, database access) at build time and again at load time. That
+works because C# compiles to inspectable IL.
 PHP is dynamic - `$f = 'ex' . 'ec'; $f($cmd);` defeats any static scanner in one line - so there is no
 trustworthy in-process PHP sandbox. Generated PHP holding `$wpdb` would be unsanctioned root on a
 customer's site, with no rollback and one fatal between it and a white screen.
@@ -30,7 +31,7 @@ PHP client is a PECL extension essentially no shared or managed host installs, a
 grpc-web framing plus a pure-PHP protobuf runtime would be a large, fragile dependency for a host
 that needs five calls.
 
-`services/platform/HandOfClient.Platform/HostGateway/HostGatewayEndpoints.cs` adds `/host/v1`, a
+The platform's Host Gateway adds `/host/v1` (fully described in `openapi/platform-host-v1.yaml`), a
 narrow JSON projection of just the host-facing RPCs:
 
 | Endpoint | Auth | Purpose |
@@ -49,7 +50,7 @@ surface stay gRPC-only - those belong to the publisher CLI and the plugin, which
 
 ### 2.2 How a plugin reads host data - the part that is not obvious
 
-A plugin bundle **cannot fetch the WordPress site directly.** `BundleEndpoints.cs` serves every
+A plugin bundle **cannot fetch the WordPress site directly.** The platform serves every
 bundle with `connect-src 'self' {apiOrigin}`, deliberately, because that is what forces plugin egress
 through `EgressProxy` rather than a direct `fetch()`. That constraint is load-bearing and was not
 relaxed.
@@ -223,7 +224,7 @@ dotnet run --project tools/sample-bootstrap/HandOfClient.SampleBootstrap -- acti
   --package-id handofclient/wp-site-snapshot --slot-id site-snapshot --version 0.1.0
 ```
 
-The tenant id defaults to the site's own host name (e.g. `yayatea.com`). That is deliberate: a staging
+The tenant id defaults to the site's own host name (e.g. `example.com`). That is deliberate: a staging
 clone gets a different tenant id automatically and does not inherit production's activations.
 
 ## 7. Deployment prerequisite that is easy to miss

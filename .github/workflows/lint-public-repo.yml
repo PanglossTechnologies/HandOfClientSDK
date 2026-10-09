@@ -1,0 +1,18 @@
+name: lint-public-repo
+
+# This repository is public and must be self-contained: fails on private tool names, private paths and
+# internal design-doc pointers, and on broken relative links in README.md / docs.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node tools/lint-public-repo.mjs

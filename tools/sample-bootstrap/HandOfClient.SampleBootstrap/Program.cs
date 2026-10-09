@@ -1,7 +1,6 @@
-// Tiny CLI used to stand up the demo data samples/hosts/dotnet and E4 (dogfood) both need: a
-// registered host and an activated slot. Neither PackageRegistry.RegisterHost (SuperAdminKey-gated) nor
-// Activate (HostApiKey-gated) has any other entry point today - no admin UI exists yet (task E1). This
-// is deliberately not that UI; it is the minimum needed to unblock samples/E4 until E1 ships.
+// Tiny CLI used to stand up the demo data the samples need: a registered host and an activated slot.
+// It wraps PackageRegistry.RegisterHost (SuperAdminKey-gated) and Activate (HostApiKey-gated) for scripts
+// and demos. It is deliberately not an admin UI.
 using Google.Protobuf.WellKnownTypes;
 using HandOfClient.Client;
 using HandOfClient.V1;
@@ -147,9 +146,8 @@ static async Task GetActiveVersionAsync(Dictionary<string, string> opts)
 
 static async Task RollbackAsync(Dictionary<string, string> opts)
 {
-    // Automated safety-net counterpart to ActivateAsync: /createpluginforcustomer's HandOfClient variant
-    // calls this if a real production Activate's own post-activation verification doesn't confirm the
-    // expected version live - see that command's step 9'. target-version MUST be a version this tenant was
+    // Safety-net counterpart to ActivateAsync: automation can call this if a production Activate's
+    // post-activation verification doesn't confirm the expected version live. target-version MUST be a version this tenant was
     // previously activated on (RollbackRequest's own contract); the platform enforces this, this CLI does
     // not re-validate it client-side.
     var apiBaseUrl = Require(opts, "api-base-url");

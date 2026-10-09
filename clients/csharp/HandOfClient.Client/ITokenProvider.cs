@@ -3,8 +3,8 @@ namespace HandOfClient.Client;
 /// <summary>
 /// Supplies the bearer token for every Platform API call. A host's own
 /// backend mints tokens directly via TokenService.IssueEmbedToken using its
-/// host API key - see design doc "3. Platform API Contract" and
-/// "2. postMessage Embed Protocol + JS SDK".
+/// host API key; inside an embed iframe the token is refreshed through the host page
+/// (see docs/postmessage-protocol.md).
 /// </summary>
 public interface ITokenProvider
 {

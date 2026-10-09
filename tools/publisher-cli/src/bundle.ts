@@ -3,7 +3,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { ZipFile } from "yazl";
 
-// Mirrors services/platform/HandOfClient.Platform/Storage/BundleStore.cs's caps exactly, checked here
+// Mirrors the platform's bundle size/entry caps exactly (see docs/plugin-author-tutorial.md), checked here
 // too so an oversized bundle fails fast with a clear local message instead of a late server rejection
 // after however long the upload took.
 const MAX_UNCOMPRESSED_BYTES = 50 * 1024 * 1024;
@@ -18,7 +18,7 @@ export interface PackedFile {
 
 export interface PackedBundle {
   zipBytes: Buffer;
-  bundleHash: string; // sha256 hex of zipBytes - what the server's BundleStore also computes
+  bundleHash: string; // sha256 hex of zipBytes - what the server also computes
   files: PackedFile[];
 }
 
@@ -57,7 +57,7 @@ export async function packDirectory(bundleDir: string): Promise<PackedBundle> {
 }
 
 /** Hygiene checks only - not a security boundary (the boundary is origin sandboxing + CSP +
- * server-side scope enforcement, see design doc "6. Relationship to DotNetShared.Extensibility"). Text
+ * server-side scope enforcement; see "Hygiene checks" in docs/plugin-author-tutorial.md). Text
  * pattern matching is trivially defeated by minification/eval/dynamic import against a determined
  * adversary; this exists to catch honest-author mistakes and obvious red flags, not to vet hostile
  * code. */
@@ -73,7 +73,7 @@ export async function scanForHygieneIssues(files: PackedFile[]): Promise<Hygiene
 
     const text = await readFile(file.absolutePath, "utf8");
     if (/navigator\s*\.\s*serviceWorker\s*\.\s*register\s*\(/.test(text)) {
-      issues.push({ file: file.relativePath, message: "registers a service worker (navigator.serviceWorker.register) - not allowed, see design doc security model" });
+      issues.push({ file: file.relativePath, message: "registers a service worker (navigator.serviceWorker.register) - not allowed" });
     }
     if (/\beval\s*\(/.test(text) || /new\s+Function\s*\(/.test(text)) {
       issues.push({ file: file.relativePath, message: "contains eval()/new Function() - dynamic code execution is disallowed" });

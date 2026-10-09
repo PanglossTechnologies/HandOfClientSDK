@@ -5,9 +5,9 @@ lint:
   use:
     - STANDARD
   except:
-    # Service names match the design doc's public vocabulary (PackageRegistry,
+    # Service names are the public vocabulary (PackageRegistry,
     # Entitlement, TenantStorage, EgressProxy, AuditLog) verbatim - not
-    # renaming away from established spec/task naming for a lint default.
+    # renaming away from the established names for a lint default.
     - SERVICE_SUFFIX
 breaking:
   use:

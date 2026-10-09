@@ -9,8 +9,7 @@ import { TenantScope } from "./common_pb.js";
 
 /**
  * v1: the host pushes plan facts in via ReportUsage/its own registry calls,
- * rather than the platform querying a host callback at render time - see
- * design doc "3. Platform API Contract".
+ * rather than the platform querying a host callback at render time.
  *
  * @generated from message handofclient.v1.CheckFeaturesRequest
  */

@@ -2,7 +2,7 @@
   "name": "@handofclient/vendor-spend-dashboard-plugin",
   "version": "0.1.0",
   "private": true,
-  "description": "Task E4 dogfood plugin: real vendor-spend bar chart shipped to warehouse (GT Bakery) via HandOfClient instead of DotNetShared.Extensibility.",
+  "description": "Example plugin: a vendor-spend bar chart rendered from launchParams data.",
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {

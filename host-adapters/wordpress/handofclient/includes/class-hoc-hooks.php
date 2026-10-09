@@ -121,8 +121,8 @@ class HOC_Hooks {
 
 	/**
 	 * Sends one action event to the platform, which relays it to the destination the package
-	 * declared. This site never learns that destination and never posts to it directly - see
-	 * HostGatewayEndpoints::MapHookEvents for why the URL is resolved platform-side.
+	 * declared. This site never learns that destination and never posts to it directly: the URL is
+	 * resolved platform-side so a compromised site cannot redirect hook events.
 	 *
 	 * @param array<string,mixed> $slot Slot descriptor.
 	 * @param array<string,mixed> $decl HookDecl.

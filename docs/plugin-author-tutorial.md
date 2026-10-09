@@ -1,4 +1,4 @@
-# Writing your first HandOfClient plugin (task E3)
+# Writing your first HandOfClient plugin
 
 A walkthrough for a plugin author building and publishing a real package, using
 `samples/plugins/hello-world/` as the worked example. If you just want to read finished code, that
@@ -15,7 +15,7 @@ I actually write" level.
 ## Prerequisites
 
 - A **host** you're building this for, and that host's `hostId` (whoever administers the host's
-  HandOfClient integration registers it via `RegisterHost` - see task E1/E2). Your manifest binds to
+  HandOfClient integration registers it via `RegisterHost`; see `docs/integration-guide.md`). Your manifest binds to
   exactly one host; a package is not portable across hosts.
 - A **host API key** to publish with (also from `RegisterHost`, or from whoever admins that host). Never
   commit this to source control.
@@ -42,7 +42,7 @@ regenerates it from `src/`.
 
 The one thing every plugin must do is call `hoc.init(callback)` exactly once. The SDK sends
 `hoc:ready`/`hoc:error` for you based on whether your callback resolves or throws - you never send those
-messages yourself (see `docs/postmessage-protocol.md` section 4, the `ExtensionBoundarySettled`-derived
+messages yourself (see `docs/postmessage-protocol.md` section 4, the explicit-signal
 watchdog rule: the host is waiting on this signal with a 15s timeout, so don't do slow work before
 calling it, and don't forget to call it - an uncalled `hoc.init` is a hang, not a silent success).
 
@@ -144,8 +144,7 @@ strings, no hand-computed hashes):
 ```
 
 Key fields:
-- `packageId` is globally unique and publisher-scoped (`acme/wms-labels` is the design doc's own
-  example) - pick something that won't collide.
+- `packageId` is globally unique and publisher-scoped (for example `acme/wms-labels`) - pick something that won't collide.
 - `version` must be valid semver; versions are immutable once published (re-publishing the same
   `packageId@version` is rejected).
 - Every `slots[].slotId` needs a matching `entryPoints` key, and every `entryPoints` value must be a real
@@ -153,6 +152,12 @@ Key fields:
 - `slots[].kind`: `"panel"` (named region inside an existing host page, needs `hostPanelId`), `"page"`
   (new full-page route, needs `targetPath`), or `"override"` (replaces an existing host route, needs
   `matchPath`).
+- `permissions.scopes` is the list of capabilities the package declares it needs (for example `storage.read`,
+  `storage.write`, `egress`, `tokens.userinfo`). The platform copies it, space-separated, into the `scope`
+  claim of every embed token minted for that version; it is never taken from the request, so a plugin cannot
+  grant itself more. Declare only what you use: the list is shown to administrators and is the contract for
+  what the package may do. Today the platform's hard enforcement is the `{host, tenant, package}` binding and
+  the egress rules, not a per-scope check on each call.
 - `permissions.egressHosts` is **necessary but not sufficient** for `hoc.http` to reach a host - the
   tenant admin must also allowlist it (`SetTenantEgressAllowlist`, a host-admin action, not yours).
   Declaring a host here is a request, not a grant.
@@ -166,10 +171,31 @@ npm run publish:dry-run  # packs, hashes, validates manifest + bundle, runs hygi
 
 `publish:dry-run` catches the two classes of mistake worth catching before you ever talk to a server:
 manifest/bundle mismatches (missing entry point files, bad semver, undeclared slot) and hygiene issues
-(service worker registration, `eval`, a handful of embedded-secret patterns - see
-`docs/../PROGRESS.md`'s C4 entry and the design doc's "6. Relationship to DotNetShared.Extensibility" for
-why this is explicitly hygiene, not a security boundary; the real boundary is the origin-sandboxed
-iframe + served CSP + server-side scope enforcement on every RPC).
+(service worker registration, `eval`, a handful of embedded-secret patterns; see "Hygiene checks" below).
+
+### Hygiene checks
+
+`hoc-publish` scans your bundle's text files (`.js`, `.mjs`, `.cjs`, `.map`, `.html`, `.json`) and refuses to
+publish if it finds `eval(...)` / `new Function(...)`, a `navigator.serviceWorker.register(...)` call (or a
+file that looks like a service worker), or strings that look like embedded secrets (private keys, API key
+shapes). These are **hygiene checks, not a security boundary**: text pattern matching is trivially defeated
+by minification or dynamic import by a determined author, so it exists to catch honest mistakes (a leaked key,
+an accidental `eval` from a dependency) before they ship. The real boundary is enforced by the platform
+regardless of what the CLI says:
+
+- the bundle runs in an origin-sandboxed iframe (inject mode is an explicit per-tenant opt-in, see above);
+- every bundle is served with a Content-Security-Policy (`script-src 'self'`, `connect-src` limited to the
+  platform, `frame-ancestors` limited to the host's registered origins; `strictCsp` removes network access
+  entirely);
+- every `hoc.storage` / `hoc.http` / `hoc.api` call is authenticated with the embed token and bound
+  server-side to the `{host, tenant, package}` in that token (a plugin cannot name another tenant's data),
+  and `hoc.http` is checked against the manifest's `egressHosts` intersected with the tenant's approved
+  allowlist.
+
+### Limits
+
+A bundle may contain at most 5,000 files and 50 MiB uncompressed. `hoc-publish` checks both locally so an
+oversized bundle fails immediately instead of after the upload.
 
 ## 5. Publish for real
 
@@ -181,10 +207,17 @@ hoc-publish --manifest manifest.json --bundle bundle-dist \
 This uploads the bundle, then calls `PackageRegistry.PublishVersion`. **Publishing does not activate
 anything** - nobody's tenant will see the new version until the host (or whoever administers it) calls
 `Activate` for that `{host, tenant, slot}`. That's a deliberate separation: publish is "this version now
-exists and its content is sealed," activate is "this tenant should be served it" - see the design doc's
-"Version pickup" note on why this is strictly better than the old feed-sync model (nothing to
-distribute, only a pointer to flip; instant rollback is just activating a different already-published
-version).
+exists and its content is sealed," activate is "this tenant should be served it" - there is nothing
+to distribute, only a pointer to flip, and instant rollback is just activating a different
+already-published version.
+
+`hoc-publish` uploads the bundle to the platform and then calls `PublishVersion` with the hash the platform
+confirmed; you do not call the upload step yourself. Published versions are immutable and never edited
+in place. To stop serving a bad version, `Activate` another published version, `Rollback` to a previously
+active one, or `SetSlotEnabled` to switch the slot off. The platform operator can also *withdraw* a version
+outright; asking for a withdrawn version is answered with HTTP `409` (`version_unavailable` on the site's
+`hoc/token` and `hoc/api` endpoints, see `openapi/site-hoc-api.yaml`), and the host should show its normal
+error state for that feature.
 
 ### Publishing an inject bundle
 

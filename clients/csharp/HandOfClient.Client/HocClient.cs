@@ -32,7 +32,7 @@ public sealed class HocClientOptions
 /// AuthRetryInterceptor retries once on Unauthenticated after a forced
 /// refresh, and a gRPC retry policy handles transient Unavailable
 /// separately. This is what the generated HandOfClient.Client NuGet
-/// package (task A4) wraps around the raw generated stubs.
+/// package wraps around the raw generated stubs.
 /// </summary>
 public sealed class HocClient : IDisposable
 {

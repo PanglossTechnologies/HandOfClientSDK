@@ -788,16 +788,15 @@ export class Manifest extends Message<Manifest> {
   hooks: HookDecl[] = [];
 
   /**
-   * When true, BundleEndpoints emits a locked-down CSP (default-src 'none'; connect-src 'none'; ...)
+   * When true, the platform serves the bundle with a locked-down CSP (default-src 'none'; connect-src 'none'; ...)
    * instead of the platform default of "connect-src 'self' {apiOrigin}", which forces normal plugin
    * egress through EgressProxy. Built for publishers whose bundles are untrusted at generation time
-   * (e.g. CrowdGames' AI-generated, anonymous-prompt browser games) and must have zero network access,
-   * not just egress restricted to an allowlist. Pinned PER VERSION at publish time (mirrored onto
-   * BundleEntity.StrictCsp, which is what BundleEndpoints actually reads) - deliberately NOT read from
-   * the Package record, which is mutable and re-mirrored on every publish: bundle content is immutable
+   * (e.g. AI-generated, anonymous-prompt browser games) and must have zero network access,
+   * not just egress restricted to an allowlist. Pinned PER VERSION at publish time - deliberately NOT read
+   * from the package record, which is mutable and re-mirrored on every publish: bundle content is immutable
    * per version (served Cache-Control: immutable), so its CSP must be too, or a later publish with a
-   * non-strict manifest would retroactively weaken every earlier version's already-served/cached CSP
-   * (B25). See PublishVersion / PackageRecord.StrictCsp for the package-level default this also sets.
+   * non-strict manifest would retroactively weaken every earlier version's already-served/cached CSP.
+   * See PublishVersion / PackageRecord.strict_csp for the package-level default this also sets.
    *
    * @generated from field: bool strict_csp = 15;
    */
@@ -972,9 +971,8 @@ export class Package extends Message<Package> {
 
   /**
    * See Manifest.strict_csp - mirrored onto the package record at PublishVersion time as a
-   * package-level default/display value only. NOT what BundleEndpoints reads to choose a served
-   * version's CSP (that's the per-version BundleEntity.StrictCsp) - this field is mutable and gets
-   * overwritten on every publish, so it must never be re-wired into that decision.
+   * package-level default/display value only. NOT what decides a served version's CSP (that is pinned
+   * per version) - this field is mutable and gets overwritten on every publish.
    *
    * @generated from field: bool strict_csp = 7;
    */
@@ -1160,7 +1158,7 @@ export class PublishVersionRequest extends Message<PublishVersionRequest> {
   manifest?: Manifest;
 
   /**
-   * Opaque ref to an already-uploaded bundle (see B7 bundle store).
+   * Opaque ref to an already-uploaded bundle (the hash returned by the bundle upload).
    *
    * @generated from field: string bundle_upload_ref = 2;
    */

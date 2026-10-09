@@ -196,3 +196,18 @@ Dev harness: PHP is resolved from releases.json (the pinned 8.3.33 download 404e
 
 Known gaps: MySQL is covered by the DSN unit tests and the module's own MariaDB run (CL-19), not by a live WordPress-on-MySQL run; multisite shares one set of `hoc_*` tables; no CI job runs the WordPress checks (the harness is Windows PHP);
 the production site's own migration (register the webhook URL, enter the secret, enable) needs the site owner's WordPress access (Needs Human).
+
+## 2026-10-09 CL-26 Self-contained docs
+
+Removed every pointer to private tooling, private source paths, task ids and private specs from shipped
+files (proto + generated TS comments, clients, embed-js, publisher CLI, samples, WordPress adapter, docs,
+OpenAPI); rewrote `PLUGIN-AUTHORING-RULES.md` as tool-neutral; the useful knowledge is now in plain terms in the
+docs (hygiene checks are not the security boundary, bundle limits, withdraw/409, what `permissions.scopes` does and
+does not enforce). Sample hostIds/domains made neutral (`my-host`, `my-wordpress-site`, `example.com`). Added
+`docs/concepts-checklist.md` (each concept linked to where it is explained) and `tools/lint-public-repo.mjs`
+(banned terms + broken relative links in README/docs; `npm run lint:public`, CI in `lint-public-repo.yml`). Removed
+the "candidate follow-ups" proposal list from `no-source-integration.md`.
+
+Known gap: `hoc-publish` uploads to a platform route that is not part of the public API surface, so `publish.ts` and its test are the
+two allowlisted files. A public route (for example `/host/v1/bundles`) needs a platform change, then the CLI can
+switch and the allowlist shrinks.

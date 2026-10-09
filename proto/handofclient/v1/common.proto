@@ -6,7 +6,7 @@ option csharp_namespace = "HandOfClient.V1";
 
 // TenantScope is the {host, tenant, package} triple every tenant-owned
 // resource in the platform is keyed by. Present on every message that reads
-// or writes tenant data - see design doc "3. Platform API Contract".
+// or writes tenant data.
 message TenantScope {
   string host_id = 1;
   string tenant_id = 2;

@@ -115,7 +115,7 @@ export class SetRequest extends Message<SetRequest> {
   /**
    * Optional compare-and-swap; empty = unconditional set. Multiple iframe
    * instances of one plugin can race in ways single-process code never had
-   * to handle - see design doc "3. Platform API Contract".
+   * to handle.
    *
    * @generated from field: string if_match_etag = 4;
    */

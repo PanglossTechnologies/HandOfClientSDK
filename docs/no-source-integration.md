@@ -3,9 +3,9 @@
 For a customer site where you cannot change the application's code. Read `docs/wordpress-host.md` first:
 WordPress is the case where the "adapter" is an installable package. This doc covers everything else.
 
-STATUS: this is a design guide built from the host contract in the code (`sdk/embed-js/src/host/index.ts`,
-`HostGatewayEndpoints.cs`). Nothing here except the WordPress path has been built or run. Sections marked
-UNBUILT need new code.
+STATUS: this guide is built from the host contract (`sdk/embed-js/src/host/index.ts`,
+`openapi/platform-host-v1.yaml`). Nothing here except the WordPress path has a shipped adapter. Anything marked
+UNBUILT needs code you would write yourself.
 
 ## 1. What a host must provide (the whole contract)
 
@@ -63,7 +63,7 @@ The embed token carries a `userId`. The token service must get that from somewhe
 Never accept `userId` from a query string or body on the token endpoint. That lets any visitor mint a
 token as any user.
 
-## 3. Getting host data into plugins (the open design gap)
+## 3. Getting host data into plugins
 
 Plugins have no direct line to the host's backend. Their only outbound door is `hoc.http.send` through
 `EgressProxy` (allowlist, SSRF checks, rate limit, audit). Choices, cheapest first:
@@ -108,10 +108,3 @@ If none of 2-4 is possible, the plugin can only show data that is already on the
 | Change or replace an existing screen | Only for CMS "override" slots; otherwise no |
 | Per-user permissions mirrored from their app | Only if 2.3 gives you roles; otherwise no |
 | Writing back to their system | Only through a customer-provided write API (section 3.2) |
-
-## 6. Candidate follow-ups (UNBUILT)
-
-- A generic token service (reads forward-auth identity header, calls `/host/v1/embed-token`), shipped as a
-  container or nginx snippet. Probably the single highest-value piece.
-- A tag-manager / `sub_filter` snippet that loads `embed.js` and mounts into a selector.
-- A JWT-verifying gateway for section 3.3.

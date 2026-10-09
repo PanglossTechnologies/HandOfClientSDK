@@ -102,7 +102,7 @@ class HOC_Options {
 	}
 
 	/**
-	 * The site's own host name, e.g. "yayatea.com".
+	 * The site's own host name, e.g. "example.com".
 	 *
 	 * Deliberately derived from the domain rather than a generated UUID: a staging clone of this site
 	 * then gets a DIFFERENT tenant id automatically and does not inherit production's activations,

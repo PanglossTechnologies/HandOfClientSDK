@@ -12,8 +12,9 @@ info:
 
     The counterpart for the endpoints the site itself serves is `site-hoc-api.yaml`.
 
-    Not covered, deliberately: the platform's private `/internal/*` and `/automation/*` callbacks, which
-    are for the platform's own build automation and are not available to sites.
+    Not covered, deliberately: the platform's private operator callbacks, which are for the platform's own
+    automation and are not available to sites. Bundle upload, used by `hoc-publish`, is likewise not a
+    site concern; use the publisher CLI.
 
     ## Authentication
 

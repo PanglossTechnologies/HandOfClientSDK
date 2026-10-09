@@ -17,8 +17,8 @@ await hoc.init(async (context) => {
   applyTheme(root, context.theme);
 
   // hoc.storage: a per-{host,tenant,package} KV store the plugin author never has to run any
-  // infrastructure for - see docs/postmessage-protocol.md 5.2 (apiBaseUrl) and the design doc's
-  // TenantStorage section. Used here just to prove a real round trip, not because a visit counter is
+  // infrastructure for - see docs/postmessage-protocol.md 5.2 (apiBaseUrl) and the TenantStorage
+  // service in proto/. Used here just to prove a real round trip, not because a visit counter is
   // interesting on its own.
   const stored = await hoc.storage.get("visit-count");
   const count = stored.found ? Number(new TextDecoder().decode(stored.value)) + 1 : 1;

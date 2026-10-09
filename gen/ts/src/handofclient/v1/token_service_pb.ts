@@ -124,8 +124,8 @@ export class IssueEmbedTokenResponse extends Message<IssueEmbedTokenResponse> {
 
 /**
  * RefreshEmbedToken is called by the host page (not the iframe directly) so
- * a dead host session kills the plugin's API access - see design doc
- * "2. postMessage Embed Protocol + JS SDK", hoc:token-refresh.
+ * a dead host session kills the plugin's API access (see docs/postmessage-protocol.md,
+ * hoc:token-refresh).
  *
  * @generated from message handofclient.v1.RefreshEmbedTokenRequest
  */

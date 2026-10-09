@@ -105,12 +105,9 @@ export function mountIframe(container: HTMLElement, spec: IframeSpec): Promise<M
   iframe.style.border = "none";
   iframe.style.width = "100%";
   if (spec.fullWindow) iframe.style.height = "100%";
-  // "/embed/" is not decorative - it's BundleEndpoints.cs's actual mapped route
-  // ("/embed/{packageIdB64}/{version}/{**path}"). Found live: docs/postmessage-protocol.md section 4's
-  // ASCII sketch (written assuming the design doc's future per-package-subdomain scheme, where the whole
-  // origin IS the embed server) omits it, and this file originally matched the sketch instead of B7's
-  // real v1 path-based route - every mount() 404'd until this was caught by actually loading a plugin in
-  // a browser. Must stay in sync with B7 until D0/the subdomain scheme lands (see packageIdEncoding.ts).
+  // "/embed/" is not decorative - it is part of the platform's bundle route
+  // ("/embed/{packageIdB64}/{version}/{**path}"); omitting it 404s every mount(). See packageIdEncoding.ts
+  // for the packageId encoding.
   iframe.src = `${embedOrigin}/embed/${packageIdB64}/${spec.version}/${spec.entryPoint}`;
 
   return new Promise<Mounted>((resolve, reject) => {
