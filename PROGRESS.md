@@ -40,3 +40,16 @@ synchronously; `timeoutMs` bounds only the resolve lookup, `loadTimeoutMs` (defa
 
 Known gap: the plugin-side SDK (`hoc.init`) does not yet consume the inject handoff, so injected bundles must read
 `HandOfClientInject.pending` themselves (follow-up task).
+
+## 2026-10-09 CL-13 embed.js page snapshot capture
+
+New `sdk/embed-js/src/host/snapshot.ts`: `HandOfClient.captureSnapshot({ redact })` (also exported from `/host`) builds the
+snapshot node by node into an inert document (nothing is copied unless a rule copies it): inlined stylesheets (linked,
+`<style>`, CSSOM-inserted rules, adopted, imports; unreadable cross-origin ones stay `<link href>`), and redaction on by
+default (same-length `x` text, value/placeholder/title dropped, query strings stripped, `data-hoc-keep`/`data-hoc-skip`).
+Documented in `docs/page-snapshot.md`; real-browser suite `test/snapshot.test.mjs` (desktop + iPhone, includes a render
+fidelity check).
+
+Decisions: `data-*` values, `alt`/`aria-*` text and non-viewport `meta` are redacted too; password/file values and scripts are
+never captured even with `redact:false`; a skipped subtree leaves an empty same-size element so layout holds. Not captured:
+iframe contents, shadow DOM, canvas pixels.

@@ -90,7 +90,8 @@ Working examples: [`samples/hosts/python-flask`](samples/hosts/python-flask) (~7
 and [`docs/wordpress-host.md`](docs/wordpress-host.md).
 No-source (non-.NET) hosts: [`docs/no-source-integration.md`](docs/no-source-integration.md).
 Sites running the customization loop (per-feature tokens, `HandOfClient.autoMount`, `hoc-head.js`, inject
-mode): [`docs/page-lookup.md`](docs/page-lookup.md).
+mode): [`docs/page-lookup.md`](docs/page-lookup.md). Redacted page snapshots
+(`HandOfClient.captureSnapshot`): [`docs/page-snapshot.md`](docs/page-snapshot.md).
 
 ## Write a plugin
 

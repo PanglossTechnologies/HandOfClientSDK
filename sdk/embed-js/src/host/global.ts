@@ -3,12 +3,18 @@
  * `window.HandOfClient` for hosts with no JS bundler of their own. A host using a bundler should import
  * from "@handofclient/embed-js/host" directly instead of loading this file.
  */
-import { autoMount, configure, HocMountError, mount } from "./index.js";
+import { autoMount, captureSnapshot, configure, HocMountError, mount } from "./index.js";
 
 declare global {
   interface Window {
-    HandOfClient: { configure: typeof configure; mount: typeof mount; autoMount: typeof autoMount; MountError: typeof HocMountError };
+    HandOfClient: {
+      configure: typeof configure;
+      mount: typeof mount;
+      autoMount: typeof autoMount;
+      captureSnapshot: typeof captureSnapshot;
+      MountError: typeof HocMountError;
+    };
   }
 }
 
-window.HandOfClient = { configure, mount, autoMount, MountError: HocMountError };
+window.HandOfClient = { configure, mount, autoMount, captureSnapshot, MountError: HocMountError };

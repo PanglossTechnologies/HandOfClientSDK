@@ -2,5 +2,6 @@ export { autoMount, type AutoMountOptions, type AutoMountResult, type ResolvedFe
 export { configure, type HandOfClientConfig } from "./config.js";
 export { HocMountError, type MountErrorReason } from "./errors.js";
 export type { InjectContext } from "./inject.js";
-export { mount, type Mounted, type MountOptions } from "./mount.js";
+export { captureSnapshot, KEEP_ATTRIBUTE, SKIP_ATTRIBUTE, type PageSnapshot, type SnapshotOptions } from "./snapshot.js";
+export { mount,type Mounted, type MountOptions } from "./mount.js";
 export type { TokenEndpointResponse } from "./token.js";
