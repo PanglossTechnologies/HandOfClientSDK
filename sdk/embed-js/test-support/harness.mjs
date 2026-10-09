@@ -22,6 +22,13 @@ export async function startHarness() {
     await esbuild.build({ entryPoints: [path.join(root, "test-support/iframe-plugin.ts")], bundle: true, format: "esm", write: false, target: "es2022" })
   ).outputFiles[0].text;
   const injectSha = createHash("sha256").update(injectPlugin).digest("hex");
+  // The shipped hello-world sample, bundled exactly as its own build.mjs does, served unchanged in both modes.
+  const helloDir = path.resolve(root, "../../samples/plugins/hello-world");
+  const helloJs = (
+    await esbuild.build({ entryPoints: [path.join(helloDir, "src/index.ts")], bundle: true, format: "esm", write: false, target: "es2022", minify: true })
+  ).outputFiles[0].text;
+  const helloHtml = (await readFile(path.join(helloDir, "src/index.html"), "utf8")).replace("./plugin.js", "./hello.js");
+  const helloSha = createHash("sha256").update(helloJs).digest("hex");
 
   const log = { tokenRequests: [], resolveRequests: [] };
   let embedPort = 0;
@@ -47,6 +54,8 @@ export async function startHarness() {
     "/unauth": { features: [], status: 401 },
     "/badhash": { features: [feature({ featureId: "f-bad", sha256: "0".repeat(64) })], delayMs: 100 },
     "/stuck": { features: [iframeFeature({ featureId: "f-stuck", entry: "stuck.html" })], loadTimeoutMs: 600 },
+    "/hello-inject": { features: [feature({ featureId: "f-hello-inject", kind: "slot", entry: "hello.js", sha256: helloSha })], slot: true },
+    "/hello-iframe": { features: [iframeFeature({ featureId: "f-hello-iframe", kind: "slot", entry: "hello.html" })], slot: true },
     "/csp": { features: [feature({ featureId: "f-csp" })], csp: "script-src 'self' 'unsafe-inline'" },
   };
 
@@ -96,10 +105,22 @@ HandOfClient.autoMount({ timeoutMs: ${sc.timeoutMs ?? 1500}, loadTimeoutMs: ${sc
     const url = new URL(req.url, "http://x");
     const cors = { "access-control-allow-origin": "*" };
     const m = url.pathname.match(/^\/embed\/[^/]+\/[^/]+\/(.+)$/);
+    // Minimal grpc-web TenantStorage: every unary call answers with an empty message (Get: found=false;
+    // Set: empty etag), which is all hello-world needs for a full hoc.storage round trip.
+    if (url.pathname.startsWith("/handofclient.v1.TenantStorage/")) {
+      const allow = { ...cors, "access-control-allow-headers": req.headers["access-control-request-headers"] ?? "*", "access-control-expose-headers": "grpc-status,grpc-message" };
+      if (req.method === "OPTIONS") { res.writeHead(204, allow); return res.end(); }
+      const trailer = Buffer.from("grpc-status: 0\r\n");
+      const header = Buffer.alloc(5); header[0] = 0x80; header.writeUInt32BE(trailer.length, 1);
+      res.writeHead(200, { ...allow, "content-type": "application/grpc-web+proto" });
+      return res.end(Buffer.concat([Buffer.from([0, 0, 0, 0, 0]), header, trailer]));
+    }
     const serve = (type, body) => { res.writeHead(200, { "content-type": type, ...cors }); res.end(body); };
     if (m && m[1] === "index.js") return serve("text/javascript", injectPlugin);
     if (m && m[1] === "index.html") return serve("text/html", '<!doctype html><body><script type="module" src="plugin.js"></script></body>');
     if (m && m[1] === "stuck.html") return serve("text/html", "<!doctype html><body>never says hello</body>");
+    if (m && m[1] === "hello.js") return serve("text/javascript", helloJs);
+    if (m && m[1] === "hello.html") return serve("text/html", helloHtml);
     if (m && m[1] === "plugin.js") return serve("text/javascript", iframePluginJs);
     res.writeHead(404, cors);
     res.end();

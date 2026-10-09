@@ -2,24 +2,36 @@ import type { TokenProvider } from "@handofclient/api";
 import { PostMessageChannel } from "../channel.js";
 import { MessageType, type TokenRefreshReplyPayload } from "../protocol.js";
 
+export type TokenRefresher = () => Promise<{ token: string; expiresAt: string }>;
+
+/** Iframe mode: round-trips hoc:token-refresh through the host page. */
+export function hostRelayRefresher(channel: PostMessageChannel): TokenRefresher {
+  return async () => {
+    const reply = await channel.request<Record<string, never>, TokenRefreshReplyPayload>(MessageType.TokenRefresh, {});
+    if ("error" in reply) throw new Error(reply.error);
+    return reply;
+  };
+}
+
 const PROACTIVE_REFRESH_FRACTION = 0.8;
 
 /**
- * Implements @handofclient/api's TokenProvider by round-tripping hoc:token-refresh through the host
- * page - see docs/postmessage-protocol.md section 5.7. Two independent triggers land on the same
+ * Implements @handofclient/api's TokenProvider on top of a refresh function: in iframe mode that is
+ * hoc:token-refresh through the host page (docs/postmessage-protocol.md section 5.7), in inject mode it is
+ * the site's token endpoint called directly (InjectContext.refreshToken). Two independent triggers land on the same
  * request: reactively, when the generated client's authInterceptor gets an Unauthenticated response
  * (refreshToken()), and proactively, on a timer here at 80% of the token's remaining TTL, so a
  * long-lived plugin session refreshes ahead of expiry instead of always paying a failed-call round
  * trip first.
  */
-export class HostRelayTokenProvider implements TokenProvider {
+export class RefreshingTokenProvider implements TokenProvider {
   private token: string;
   private expiresAt: Date;
   private refreshPromise: Promise<string> | null = null;
   private proactiveTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
-    private readonly channel: PostMessageChannel,
+    private readonly refresher: TokenRefresher,
     initialToken: string,
     initialExpiresAt: string,
   ) {
@@ -48,10 +60,7 @@ export class HostRelayTokenProvider implements TokenProvider {
   }
 
   private async doRefresh(): Promise<string> {
-    const reply = await this.channel.request<Record<string, never>, TokenRefreshReplyPayload>(MessageType.TokenRefresh, {});
-    if ("error" in reply) {
-      throw new Error(reply.error);
-    }
+    const reply = await this.refresher();
     this.token = reply.token;
     this.expiresAt = new Date(reply.expiresAt);
     this.scheduleProactiveRefresh();

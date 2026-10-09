@@ -16,8 +16,10 @@ import {
   type UiReplyPayload,
   type UiRequestPayload,
 } from "../protocol.js";
+import { defaultUiHandler } from "../host/defaultUi.js";
+import type { InjectContext } from "../host/inject.js";
 import { startAutoResize } from "./resize.js";
-import { HostRelayTokenProvider } from "./tokenProvider.js";
+import { hostRelayRefresher, RefreshingTokenProvider } from "./tokenProvider.js";
 
 const SDK_VERSION = "0.1.0";
 
@@ -38,9 +40,14 @@ export type UiRequestOptions =
   | { kind: "toast"; message: string; durationMs?: number }
   | { kind: "confirm"; title?: string; message: string };
 
+/** How the bundle is running: in its own sandboxed iframe (postMessage to the host), or injected into the
+ * host page itself (same `hoc` surface, implemented in-page - docs/plugin-author-tutorial.md "Inject mode"). */
+export type HocMode = "iframe" | "inject";
+
 class HocSdk {
   private channel: PostMessageChannel | null = null;
-  private tokenProvider: HostRelayTokenProvider | null = null;
+  private injected: InjectContext | null = null;
+  private tokenProvider: RefreshingTokenProvider | null = null;
   private _context: HocContext | null = null;
   private _api: GeneratedHocClient | null = null;
   private stopAutoResize: (() => void) | null = null;
@@ -48,27 +55,46 @@ class HocSdk {
   private navigateListeners = new Set<(payload: NavigateHostToPluginPayload) => void>();
 
   /**
-   * Runs the handshake (docs/postmessage-protocol.md section 4), invokes `callback` with the resolved
-   * context, and signals hoc:ready/hoc:error based on whether it completes without throwing. Must be
-   * called exactly once per iframe load.
+   * Iframe mode: runs the handshake (docs/postmessage-protocol.md section 4). Inject mode: takes the
+   * handoff embed.js left in `window.HandOfClientInject.pending` - no handshake, no postMessage. Either
+   * way it then invokes `callback` with the resolved context; in iframe mode it also signals
+   * hoc:ready/hoc:error based on whether the callback completes without throwing. Must be called exactly
+   * once, and in inject mode synchronously at module top level (before the bundle's first `await`),
+   * because that is the only moment the handoff exists.
    */
   async init(callback: (context: HocContext) => void | Promise<void>): Promise<void> {
-    const { initPayload, trustedOrigin } = await this.performHandshake();
+    // Must be read before any await: embed.js clears it as soon as the script's first turn ends.
+    const injected = window.HandOfClientInject?.pending ?? null;
+    let initPayload: InitPayload;
 
-    this.channel = new PostMessageChannel(
-      () => (this.channel ? { window: window.parent, origin: trustedOrigin } : null),
-      (event) => event.source === window.parent && event.origin === trustedOrigin,
-    );
-    // Registered only after the handshake completes and origin is pinned - see
-    // docs/postmessage-protocol.md section 3: no application-visible callback dispatches before init.
-    this.channel.onNotification<ContextChangedPayload>(MessageType.ContextChanged, (payload) => {
-      for (const listener of this.contextListeners) listener(payload);
-    });
-    this.channel.onNotification<NavigateHostToPluginPayload>(MessageType.Navigate, (payload) => {
-      for (const listener of this.navigateListeners) listener(payload);
-    });
+    if (injected) {
+      this.injected = injected;
+      initPayload = injected.init;
+      this.tokenProvider = new RefreshingTokenProvider(() => injected.refreshToken(), initPayload.token, initPayload.tokenExpiresAt);
+    } else {
+      if (window.parent === window) {
+        throw new Error(
+          "hoc.init found neither a parent window (iframe mode) nor an inject handoff (inject mode). In inject mode, call hoc.init synchronously at the top level of the bundle, before its first await.",
+        );
+      }
+      const handshake = await this.performHandshake();
+      initPayload = handshake.initPayload;
+      const trustedOrigin = handshake.trustedOrigin;
+      this.channel = new PostMessageChannel(
+        () => (this.channel ? { window: window.parent, origin: trustedOrigin } : null),
+        (event) => event.source === window.parent && event.origin === trustedOrigin,
+      );
+      // Registered only after the handshake completes and origin is pinned - see
+      // docs/postmessage-protocol.md section 3: no application-visible callback dispatches before init.
+      this.channel.onNotification<ContextChangedPayload>(MessageType.ContextChanged, (payload) => {
+        for (const listener of this.contextListeners) listener(payload);
+      });
+      this.channel.onNotification<NavigateHostToPluginPayload>(MessageType.Navigate, (payload) => {
+        for (const listener of this.navigateListeners) listener(payload);
+      });
+      this.tokenProvider = new RefreshingTokenProvider(hostRelayRefresher(this.channel), initPayload.token, initPayload.tokenExpiresAt);
+    }
 
-    this.tokenProvider = new HostRelayTokenProvider(this.channel, initPayload.token, initPayload.tokenExpiresAt);
     this._api = createHocClient({ baseUrl: initPayload.apiBaseUrl, tokenProvider: this.tokenProvider });
     this._context = {
       hostId: initPayload.tenantContext.hostId,
@@ -84,12 +110,29 @@ class HocSdk {
 
     try {
       await callback(this._context);
-      this.channel.send<ReadyPayload>(MessageType.Ready, {});
+      this.channel?.send<ReadyPayload>(MessageType.Ready, {});
     } catch (cause) {
       const error = cause instanceof Error ? cause : new Error(String(cause));
-      this.channel.send<ErrorPayload>(MessageType.Error, { message: error.message, stack: error.stack, fatal: true });
+      this.channel?.send<ErrorPayload>(MessageType.Error, { message: error.message, stack: error.stack, fatal: true });
       throw error;
     }
+  }
+
+  /** "iframe" or "inject" - see HocMode. Only needed by plugins that deliberately behave differently. */
+  get mode(): HocMode {
+    if (!this._context) throw new Error("hoc.mode accessed before hoc.init(callback) resolved");
+    return this.injected ? "inject" : "iframe";
+  }
+
+  /**
+   * The element the plugin renders into, so the same code works in both modes. Inject mode: the
+   * `[data-hoc-slot]` element for a slot feature, else `document.body` (page-level features own the
+   * page). Iframe mode: `#root` if the bundle's HTML has one, else `document.body`.
+   */
+  get root(): HTMLElement {
+    if (!this._context) throw new Error("hoc.root accessed before hoc.init(callback) resolved");
+    if (this.injected) return this.injected.slotElement ?? document.body;
+    return document.getElementById("root") ?? document.body;
   }
 
   get context(): HocContext {
@@ -128,14 +171,20 @@ class HocSdk {
   };
 
   navigate(path: string, replace = false): void {
+    if (this.injected) {
+      this.injected.navigate(path, replace);
+      return;
+    }
     this.channel?.send<NavigatePluginToHostPayload>(MessageType.Navigate, { path, replace });
   }
 
+  /** Iframe mode only: inject mode has no host-side channel, so the listener is never called. */
   onContextChanged(listener: (update: ContextChangedPayload) => void): () => void {
     this.contextListeners.add(listener);
     return () => this.contextListeners.delete(listener);
   }
 
+  /** Iframe mode only: inject mode has no host-side channel, so the listener is never called. */
   onHostNavigate(listener: (payload: NavigateHostToPluginPayload) => void): () => void {
     this.navigateListeners.add(listener);
     return () => this.navigateListeners.delete(listener);
@@ -151,13 +200,16 @@ class HocSdk {
   };
 
   private request<T>(payload: UiRequestPayload): Promise<T> {
+    if (this.injected) return (this.injected.ui ?? defaultUiHandler)(payload) as Promise<T>;
     if (!this.channel) throw new Error("hoc.ui used before hoc.init(callback) resolved");
     return this.channel.request<UiRequestPayload, T>(MessageType.Ui, payload);
   }
 
   /** Coalesces ResizeObserver callbacks to at most one hoc:resize per animation frame - see
-   * docs/postmessage-protocol.md section 5.5. Call once, after the plugin's root element exists. */
+   * docs/postmessage-protocol.md section 5.5. Call once, after the plugin's root element exists. A no-op
+   * in inject mode. */
   resizeAuto(rootElement: HTMLElement): void {
+    if (this.injected) return; // inject mode: the element is already in the host page and sizes with it
     if (!this.channel) throw new Error("hoc.resizeAuto used before hoc.init(callback) resolved");
     this.stopAutoResize?.();
     this.stopAutoResize = startAutoResize(this.channel, rootElement);
@@ -183,5 +235,5 @@ class HocSdk {
   }
 }
 
-/** Singleton - one plugin bundle instance runs inside exactly one iframe for exactly one mount. */
+/** Singleton - one plugin bundle instance runs for exactly one mount (one iframe, or one injected script). */
 export const hoc = new HocSdk();

@@ -1,4 +1,4 @@
-import type { InitPayload } from "../protocol.js";
+import type { InitPayload, UiReplyPayload, UiRequestPayload } from "../protocol.js";
 import { HocMountError } from "./errors.js";
 
 /**
@@ -18,6 +18,8 @@ export interface InjectContext {
   refreshToken(): Promise<{ token: string; expiresAt: string }>;
   /** Equivalent of hoc:navigate. */
   navigate(path: string, replace: boolean): void;
+  /** Equivalent of hoc:ui. Absent: the plugin SDK falls back to the built-in default renderer. */
+  ui?(request: UiRequestPayload): Promise<UiReplyPayload>;
 }
 
 declare global {

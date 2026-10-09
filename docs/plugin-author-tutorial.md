@@ -52,7 +52,8 @@ import { hoc } from "@handofclient/embed-js/plugin";
 await hoc.init(async (context) => {
   // context.hostId/tenantId/packageId/slotId/version, context.user, context.theme, context.locale,
   // context.launchParams - everything the host handed you at mount time.
-  document.getElementById("root")!.textContent = `Hello, ${context.user.displayName}`;
+  // hoc.root is where to render, in either mode (see "Inject mode" below).
+  hoc.root.textContent = `Hello, ${context.user.displayName}`;
 });
 ```
 
@@ -67,6 +68,7 @@ Inside (or after) that callback you have the rest of the SDK surface:
   blocks it at the browser level, so `hoc.http` is not a convenience, it's the only path.
 - `hoc.ui.modal/toast/confirm` - rendered by the *host's* chrome (a modal needs to escape your iframe's
   clipped box). Works with zero host-side integration effort - `embed.js` ships a default renderer.
+- `hoc.root` / `hoc.mode` - the element to render into, and `"iframe"` or `"inject"` (see "Inject mode").
 - `hoc.resizeAuto(rootElement)` - call once your content exists; keeps the host's iframe sized to fit
   your content via `ResizeObserver`, coalesced to one message per animation frame.
 - `hoc.navigate(path)` / `hoc.onHostNavigate(listener)` - ask the host to change its own route, or learn
@@ -77,6 +79,47 @@ One CSP consequence worth knowing up front: the platform serves every bundle wit
 file loaded via `<script type="module" src="...">` (or a non-module IIFE if you don't need top-level
 `await`); inline `onclick="..."` attributes and `<script>...</script>` blocks will be silently blocked by
 the browser, not by anything in this SDK.
+
+## Inject mode
+
+A tenant's feature can run in one of two modes, chosen by the host's administrator and not by you: in an
+**iframe** (everything above) or **injected** into the host page itself, as a `<script type="module"
+integrity="...">` that embed.js loads (`docs/page-lookup.md`, "Inject mode"). You write one bundle. The same
+`hoc` object works in both, with the same signatures:
+
+| `hoc.*` | iframe | inject |
+|---|---|---|
+| `init(callback)` | handshake with the host over postMessage, then `hoc:ready` / `hoc:error` | takes the handoff embed.js left for this script; no postMessage. An exception from your callback is thrown out of `init` (and so out of your module), nothing is signalled |
+| `context` (user, theme, locale, tenant, ...) | from the handshake | same values, from the handoff |
+| `api`, `storage`, `http` | token relayed from the host, refreshed through it | same client; the token is refreshed by calling the site's token endpoint directly |
+| `navigate(path)` | `hoc:navigate`; the host decides | same-origin navigation of the page (or the host's `onNavigate`); another origin is ignored |
+| `ui.modal/toast/confirm` | host chrome | the host's `onUi` if it passed one, else the built-in renderer, in the page |
+| `root` | `#root` in your HTML, else `<body>` | the `[data-hoc-slot]` element of a slot feature, else `<body>` |
+| `resizeAuto(el)` | keeps the iframe sized to `el` | no-op: your element is already in the page and sizes with it |
+| `onContextChanged`, `onHostNavigate` | fire | never fire (no host channel) |
+
+Rules that only matter in inject mode:
+
+- **Call `hoc.init` synchronously at the top level of your module, before your first `await`.** The handoff
+  exists only for that first turn. Anything else (an `await fetch(...)` first, calling `init` from a click
+  handler) throws "hoc.init found neither a parent window ... nor an inject handoff".
+- **You share the page.** Your JS runs with the host page's privileges: it can read the DOM, cookies the
+  page can see, and the host's globals. That is the point of the mode (it can edit the page in place), and
+  the reason it is opt-in per tenant. What you must not assume: your own `<html>`/`<head>`/`#root`, your
+  own viewport, or a clean global scope. Do not set CSS variables on `<html>` or add global styles; scope
+  them to `hoc.root` (the hello-world sample applies its theme variables to `hoc.root` for this reason).
+- **Page access** is plain DOM: `document`, `window`, `hoc.root`, and `document.querySelector` for any host
+  element. There is no wrapper and no guarantee the host's markup stays the same, so look elements up
+  defensively and handle a miss. In iframe mode `document` is your own page.
+- **No `<script>` or HTML shell.** Only your entry JS is loaded; an `index.html` is used by iframe mode only.
+  Keep per-element styling inline or injected with a scoped `<style>` from your JS, since your `<style>`
+  block in `index.html` does not exist in the host page.
+- The host's Content-Security-Policy must allow the embed origin in `script-src`, or the feature is reported
+  as `csp-blocked`; a plugin cannot work around that.
+
+`samples/plugins/hello-world/` runs unchanged in both modes: its `src/index.ts` is the same file, it renders
+into `hoc.root` and puts its theme variables there. `sdk/embed-js/test/autoMount.test.mjs` runs the built
+sample in both modes at desktop and iPhone viewports.
 
 ## 3. Write the manifest (`manifest.json`)
 
@@ -149,6 +192,9 @@ version).
   `--bundle` directory root, forward-slash, no leading `./`.
 - **"is already registered to a different host"** (on `PublishVersion`) - `packageId` collided with
   someone else's package. Pick a more specific publisher-scoped slug.
+- **Works in the iframe, nothing renders when injected** - you used `document.getElementById("root")` (it
+  is your HTML's element, absent in the host page) or called `hoc.init` after an `await`. Use `hoc.root` and
+  call `init` first.
 - **Plugin loads but the host shows a timeout error** - you never called `hoc.init(callback)`, or the
   callback hung before resolving. Check the browser console inside the iframe (open devtools, select the
   iframe's context) - `hoc:error`/timeout only tells the *host* something went wrong, not why.

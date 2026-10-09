@@ -179,6 +179,7 @@ export async function autoMount(options: AutoMountOptions = {}): Promise<AutoMou
             return { token: refreshed.token, expiresAt: refreshed.expiresAt };
           },
           navigate: onNavigate,
+          ui: options.onUi,
         };
         const src = `${embedOrigin}/embed/${encodePackageId(feature.packageId)}/${feature.version}/${feature.entry}`;
         await loadInjected(src, toIntegrity(feature.sha256), context, loadTimeoutMs);

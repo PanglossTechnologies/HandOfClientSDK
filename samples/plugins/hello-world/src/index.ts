@@ -1,9 +1,11 @@
 import { hoc } from "@handofclient/embed-js/plugin";
 
-const root = document.getElementById("root")!;
-
-function applyTheme(theme: { fontFamily: string; textColor: string; backgroundColor: string; accentColor: string }): void {
-  const style = document.documentElement.style;
+// hoc.root is the element to render into in either mode: #root in the iframe's own page, the
+// [data-hoc-slot] element (or the page body) when injected into the host page - see
+// docs/plugin-author-tutorial.md "Inject mode". The code below is identical for both.
+function applyTheme(root: HTMLElement, theme: { fontFamily: string; textColor: string; backgroundColor: string; accentColor: string }): void {
+  // On the root, not <html>: in inject mode <html> belongs to the host page.
+  const style = root.style;
   style.setProperty("--hoc-font-family", theme.fontFamily);
   style.setProperty("--hoc-text-color", theme.textColor);
   style.setProperty("--hoc-background-color", theme.backgroundColor);
@@ -11,7 +13,8 @@ function applyTheme(theme: { fontFamily: string; textColor: string; backgroundCo
 }
 
 await hoc.init(async (context) => {
-  applyTheme(context.theme);
+  const root = hoc.root;
+  applyTheme(root, context.theme);
 
   // hoc.storage: a per-{host,tenant,package} KV store the plugin author never has to run any
   // infrastructure for - see docs/postmessage-protocol.md 5.2 (apiBaseUrl) and the design doc's
@@ -28,7 +31,7 @@ await hoc.init(async (context) => {
     <button id="toast-btn" type="button">Say hello (hoc.ui.toast)</button>
   `;
 
-  document.getElementById("toast-btn")!.addEventListener("click", () => {
+  root.querySelector("#toast-btn")!.addEventListener("click", () => {
     void hoc.ui.toast(`Hello from packageId ${context.packageId}!`);
   });
 

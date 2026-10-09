@@ -125,6 +125,31 @@ for (const vp of viewports) {
       await page.close();
     });
 
+    // CL-15: the shipped hello-world sample, byte-for-byte the same bundle, in iframe and inject mode.
+    for (const mode of ["inject", "iframe"]) {
+      test(`hello-world sample runs unchanged (${mode} mode): context, hoc.storage, hoc.ui.toast`, async () => {
+        const { page, messages } = await open(`/hello-${mode}`);
+        assert.deepEqual((await result(page)).applied, [`f-hello-${mode}`]);
+        const root = mode === "inject" ? page.locator("#slot") : page.frameLocator("#slot iframe").locator("#root");
+        await root.locator("h1").waitFor({ timeout: 8000 });
+        assert.equal(await root.locator("h1").textContent(), `Hello, for f-hello-${mode}!`);
+        assert.match(await root.locator("p").first().textContent(), /Host: host-1 .* Tenant: tenant-9/);
+        assert.match(await root.locator("p").nth(1).textContent(), /opened 1 time\(s\)/);
+        if (mode === "inject") assert.equal(await page.locator("#content").isVisible(), true, "slot features leave the page in place");
+        await root.locator("#toast-btn").click();
+        await page.getByText("Hello from packageId acme/f-1!").waitFor({ timeout: 4000 }); // rendered by the host page's default UI
+        assert.deepEqual(messages.filter((m) => /error|failed/i.test(m)), []);
+        await page.close();
+      });
+    }
+
+    test("inject mode: handoff is cleared once the script has loaded", async () => {
+      const { page } = await open("/hello-inject");
+      const outcome = await page.evaluate(() => window.HandOfClientInject?.pending ?? "cleared");
+      assert.equal(outcome, "cleared", "handoff is cleared once the script has loaded");
+      await page.close();
+    });
+
     test("slot feature with no element on the page: reported, original shows", async () => {
       const { page } = await open("/noslot");
       const r = await result(page);

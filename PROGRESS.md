@@ -67,3 +67,15 @@ roll back for everyone has an inline confirm step; admin feature list is just `G
 
 Known gaps: the fake lives in embed-js test-support, CL-16 may promote/replace it as the shared conformance fake; no
 pagination for `GET features`/versions (contract has none); user names for already-shared ids show as ids until the picker has seen them.
+
+## 2026-10-09 - CL-15 plugin SDK works in inject mode
+
+`hoc.init` in `@handofclient/embed-js/plugin` now detects `window.HandOfClientInject.pending` (read synchronously, before any
+await) and runs the same `hoc` surface in-page: no handshake, token refresh via `InjectContext.refreshToken`, navigate via
+`InjectContext.navigate`, ui via the host's `onUi` (new optional `InjectContext.ui`) or the built-in renderer. Added `hoc.mode` and
+`hoc.root` (slot element / body when injected, `#root` / body in an iframe); `resizeAuto` is a no-op and the host-event listeners never
+fire when injected. `HostRelayTokenProvider` became `RefreshingTokenProvider` over a refresh function. The hello-world sample now renders
+into `hoc.root` and scopes its theme variables to it, and the real built sample is tested unchanged in both modes at desktop + iPhone
+(harness serves a minimal grpc-web TenantStorage). Inject-mode differences documented in `docs/plugin-author-tutorial.md`.
+
+Known gaps: an exception from the callback in inject mode is only thrown, not reported back to embed.js (no error channel in `InjectContext`).

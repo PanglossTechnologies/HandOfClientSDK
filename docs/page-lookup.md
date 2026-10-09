@@ -66,8 +66,12 @@ Handoff to the bundle: immediately before adding each script, embed.js sets
   slotElement: HTMLElement | null; // for `slot` features
   refreshToken(): Promise<{ token: string; expiresAt: string }>;
   navigate(path: string, replace: boolean): void;
+  ui?(request: UiRequestPayload): Promise<UiReplyPayload>; // the host's onUi, if any
 }
 ```
+
+Plugin authors do not read this directly: `hoc.init` from `@handofclient/embed-js/plugin` takes it (see
+`docs/plugin-author-tutorial.md`, "Inject mode").
 
 Scripts are loaded one at a time, so `pending` always belongs to the script about to run. The bundle must
 read it synchronously at module top level (before its first `await`) and keep its own reference; it is
