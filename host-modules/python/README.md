@@ -108,7 +108,7 @@ The module never deletes data. Webhook event ids are kept to deduplicate retries
 
 ```
 pip install -e ".[test]"
-pytest                                           # unit tests + the CL-16 suite under Flask, Django and FastAPI (needs Node 20+)
+pytest                                           # unit tests + the conformance suite under Flask, Django and FastAPI (needs Node 20+)
 python conformance/run_conformance.py flask --db postgres   # one framework against embedded PostgreSQL (pip install pgserver psycopg[binary])
 ```
 

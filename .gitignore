@@ -61,3 +61,8 @@ vendor/
 composer.lock
 .php-local/
 .laravel-conformance/
+
+# Python Flask sample: assets copied in by fetch_assets.py, and its local database
+samples/hosts/python-flask/static/embed.global.js
+samples/hosts/python-flask/static/hoc-head.min.js
+samples/hosts/python-flask/hoc.db*

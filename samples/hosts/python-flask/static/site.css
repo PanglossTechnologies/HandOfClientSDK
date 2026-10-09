@@ -1,0 +1,15 @@
+body { font: 16px/1.5 system-ui, sans-serif; margin: 0; color: #1f2937; }
+header { display: flex; flex-wrap: wrap; gap: .5rem 1rem; justify-content: space-between; align-items: center; padding: .75rem 1rem; border-bottom: 1px solid #e5e7eb; }
+nav { display: flex; flex-wrap: wrap; gap: .25rem 1rem; }
+nav a, .who a { padding: .5rem 0; }
+.who { display: flex; align-items: center; gap: .75rem; }
+.who form { margin: 0; }
+main, .request-box { max-width: 60rem; margin: 0 auto; padding: 1rem; }
+.request-box { border-top: 1px solid #e5e7eb; margin-top: 2rem; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: .5rem; border-bottom: 1px solid #e5e7eb; }
+.login { display: grid; gap: .75rem; max-width: 20rem; }
+.login input { width: 100%; box-sizing: border-box; padding: .5rem; }
+button { padding: .5rem 1rem; min-height: 44px; }
+.error { color: #b91c1c; }
+.hint { color: #6b7280; }

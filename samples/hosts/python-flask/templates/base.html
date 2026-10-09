@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Acme Orders{% endblock %}</title>
+  <link rel="icon" href="data:,">
+  {% if user %}
+  <!-- hoc-head.js: hides the page until embed.js has asked which features apply (no flash of the original page). -->
+  <script>{{ hoc_head|safe }}</script>
+  {% endif %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='site.css') }}">
+</head>
+<body{% if user %} data-hoc="on"{% endif %}>
+  <header>
+    <nav>
+      <a href="{{ url_for('home') }}" data-hoc-keep>Home</a>
+      {% if user %}
+      <a href="{{ url_for('orders') }}" data-hoc-keep>Orders</a>
+      <a href="{{ url_for('my_features') }}" data-hoc-keep>My features</a>
+      {% if user.admin %}<a href="{{ url_for('admin') }}" data-hoc-keep>Admin</a>{% endif %}
+      {% endif %}
+    </nav>
+    <div class="who">
+      {% if user %}
+      {{ user.name }}
+      <form method="post" action="{{ url_for('logout') }}"><button type="submit">Sign out</button></form>
+      {% else %}
+      <a href="{{ url_for('login') }}">Sign in</a>
+      {% endif %}
+    </div>
+  </header>
+
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+  {% if user and request_box|default(true) %}
+  <!-- The request box. It captures this page (redacted) so the build knows what the page looks like. -->
+  <section class="request-box" data-hoc-keep>
+    <h2>Want this page to work differently?</h2>
+    <hoc-request-feature></hoc-request-feature>
+  </section>
+  {% endif %}
+
+  {% if user %}
+  <!-- Data slot: features of kind "slot" mount here. -->
+  <div data-hoc-slot="main"></div>
+  {% endif %}
+
+  <script src="{{ url_for('static', filename='embed.global.js') }}"></script>
+  <script src="{{ url_for('static', filename='site.js') }}"
+          data-api-base-url="{{ api_base_url }}" data-embed-origin="{{ embed_origin }}"></script>
+</body>
+</html>

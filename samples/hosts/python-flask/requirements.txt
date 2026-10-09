@@ -1,2 +1,2 @@
-flask>=3.0
-requests>=2.32
+flask>=2.2
+handofclient>=0.1.0

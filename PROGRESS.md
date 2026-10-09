@@ -168,3 +168,11 @@ environment, and the package submitted on packagist.org (Needs Human); `samples/
 Proof against a real dev platform (HandOfClient Platform built from dev, isolated data dir): an iframe bundle and an inject bundle both published with a host key, an inject version published with the super-admin key + `--host-id`, the served `/embed/.../feature.js` bytes hash to the printed integrity, republish gives `already_exists`, and a super-admin key without `--host-id` is rejected.
 
 Known gaps: the import check is a regex over source (an import hidden in a string or built dynamically is not seen); no CI job runs the publisher-cli tests yet.
+
+## 2026-10-09 - CL-21 Flask sample, integration guide, README
+
+`samples/hosts/python-flask` is now a complete customization-loop host on the Python module: sign-in, request box on every page, My features, admin page, `hoc-head.js`, an overridable `/orders` page, a `/ext/*` catch-all that 404s unless a `new-page` feature claims the path, `/api/orders` as the one data source (with `orders-openapi.json`), and a CSP (hash for the inlined head snippet, embed origin in `script-src`/`frame-src`). New `docs/integration-guide.md` (access values, local dev against the fake platform, layout snippet, CSP table, CSRF, webhooks, data sources, production checklist, and a "write your own host module" path built on the OpenAPI files plus the conformance suite); root README leads with it. Proof: 4 pytest cases against the fake platform and 4 Playwright cases (desktop and iPhone, under the real CSP, no console errors) for request -> built -> visible only to the requester, My features, admin and the 404; the guide's inline Flask app was also run verbatim through the same loop.
+
+Decisions: the sample reads `hoc-head.min.js` and `embed.global.js` from `static/` (copied by `fetch_assets.py`, gitignored) rather than vendoring them; a polling fallback is documented as status-only because `GET /builds/{id}` carries no version, so the module does not poll.
+
+Known gaps: the latest GitHub release (v0.1.0) predates the components, `autoMount` and `hoc-head.min.js`, so the sample needs a source build until a new release is cut; `handofclient` is not on PyPI yet; the Python module README still names the (fixed).

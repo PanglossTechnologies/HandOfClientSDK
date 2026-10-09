@@ -15,8 +15,8 @@ The platform itself is hosted; this repo is everything you need to integrate wit
 
 ## Get access
 
-Access is by request. Email support@panglosstechnologies.com with your company, site URL and backend language.
-You get back, per environment:
+Access is by request. Email support@panglosstechnologies.com with your company, site URL(s) and backend language
+(plus your webhook URL if you want users to request features, see below). You get back, per environment:
 
 | Value | Used for |
 |---|---|
@@ -24,11 +24,31 @@ You get back, per environment:
 | `hostId` | Identifies your site. Public; goes in the page. |
 | `tenantId` | Your tenant. Public; goes in the page and the token call. |
 | host API key | Secret. Server-side only, sent as `x-api-key` by your token endpoint. |
+| webhook secret | Secret, returned once when your webhook URL is registered. Verifies the events the platform sends you. |
 
 `packageId` / `slotId` pick the plugin and where it mounts. Try `handofclient/hello-world` / `main-panel`
 (the sample plugin), then use your own once published (see "Write a plugin").
 
-## Integrate your app (any backend language)
+## Let your users request features (the customization loop)
+
+A signed-in user types "I want X" into a box on your site, it is built, and the site looks changed for that user
+only; they can keep an older version, share it, or ask for changes. Your site stores the data; you add a host
+module (Python, Node, PHP; or your own language from the contract), a few lines in your page layout, and a webhook.
+
+* **Start here: [`docs/integration-guide.md`](docs/integration-guide.md).** It covers getting your API key and host
+  registration, running the whole loop locally against a stand-in platform (no account needed), the layout snippet,
+  Content-Security-Policy requirements, webhooks (and why polling is not a replacement), data for features, a
+  production checklist, and how to implement a host module in a language that has none.
+* **Runnable example: [`samples/hosts/python-flask`](samples/hosts/python-flask).** Sign-in, request box, My
+  features, admin page, one overridable page and one data source; its README gets to "request submitted -> built ->
+  visible only to me" in a few commands.
+* Host modules: [`host-modules/python`](host-modules/python), [`host-modules/node`](host-modules/node),
+  [`host-modules/php`](host-modules/php). Contracts: [`openapi/`](openapi).
+
+## Embed a plugin (any backend language)
+
+The rest of this section is the lower-level path: mount one specific plugin into a slot with a token endpoint you
+write yourself. The customization loop above uses the same `embed.js` and does not need it.
 
 1. **Load `embed.js`**: download `embed.global.js` from the
    [latest release](https://github.com/PanglossTechnologies/HandOfClientSDK/releases/latest/download/embed.global.js)
@@ -85,8 +105,8 @@ at `hoc/token`):
 </script>
 ```
 
-Working examples: [`samples/hosts/python-flask`](samples/hosts/python-flask) (~70 lines),
-[`samples/hosts/dotnet`](samples/hosts/dotnet). WordPress: [`host-adapters/wordpress`](host-adapters/wordpress)
+Working examples: [`samples/hosts/dotnet`](samples/hosts/dotnet) (a hand-written token endpoint);
+[`samples/hosts/python-flask`](samples/hosts/python-flask) is the customization-loop host. WordPress: [`host-adapters/wordpress`](host-adapters/wordpress)
 and [`docs/wordpress-host.md`](docs/wordpress-host.md).
 No-source (non-.NET) hosts: [`docs/no-source-integration.md`](docs/no-source-integration.md).
 Sites running the customization loop (per-feature tokens, `HandOfClient.autoMount`, `hoc-head.js`, inject
@@ -112,7 +132,7 @@ Start from [`samples/plugins/hello-world`](samples/plugins/hello-world); see
 | `host-modules/node` | `@handofclient/host` for Node.js: the host module (Express, Fastify, node:http; SQLite, PostgreSQL, MySQL) |
 | `host-modules/php` | `handofclient/host` for PHP: the host module (plain PHP, Laravel; SQLite, PostgreSQL, MySQL) |
 | `samples/` | Host and plugin examples |
-| `docs/` | Protocol spec and guides |
+| `docs/` | Integration guide, protocol spec and component guides |
 
 `openapi/` holds the REST contracts for non-.NET implementers: `site-hoc-api.yaml` (the endpoints your site
 serves: `hoc/token`, `hoc/api/*`, `hoc/webhook`, including webhook signing) and `platform-host-v1.yaml`

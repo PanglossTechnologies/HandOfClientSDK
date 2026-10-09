@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Orders{% endblock %}
+{% block content %}
+<h1 data-hoc-keep>Orders</h1>
+<table>
+  <thead><tr><th data-hoc-keep>Order</th><th data-hoc-keep>Customer</th><th data-hoc-keep>Total</th><th data-hoc-keep>Status</th></tr></thead>
+  <tbody>
+  {% for o in orders %}
+    <tr><td>#{{ o.id }}</td><td>{{ o.customer }}</td><td>{{ "%.2f"|format(o.total) }}</td><td>{{ o.status }}</td></tr>
+  {% else %}
+    <tr><td colspan="4">No orders.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
