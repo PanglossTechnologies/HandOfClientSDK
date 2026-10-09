@@ -1,0 +1,1215 @@
+openapi: 3.1.0
+info:
+  title: HandOfClient platform host API (v1)
+  version: 1.0.0
+  summary: What a customer's site calls on the HandOfClient platform, and what the platform does with it.
+  description: |
+    The platform's host-facing surface, for a site written in any language. The JSON/REST part lives
+    under `/host/v1`; the same operations are also available over gRPC / grpc-web (`proto/`), which is
+    what the browser, the plugin SDK and the publisher CLI use. The two services that exist only as
+    gRPC (host registration and the egress proxy) are described here too, under the `gRPC` tag, so this
+    file is the whole contract.
+
+    The counterpart for the endpoints the site itself serves is `site-hoc-api.yaml`.
+
+    Not covered, deliberately: the platform's private `/internal/*` and `/automation/*` callbacks, which
+    are for the platform's own build automation and are not available to sites.
+
+    ## Authentication
+
+    | Scheme | Used by | How |
+    |---|---|---|
+    | `hostApiKey` | every `/host/v1` call except `jwks` | Header `x-api-key: <host API key>`. Server-side only; never in a browser. The key is returned once at host registration. |
+    | `superAdminKey` | host registration and other operator RPCs | Header `x-api-key: <super-admin key>`. Held by the platform operator, not by sites. |
+    | `embedToken` | the egress proxy (and other plugin RPCs) | `Authorization: Bearer <embed JWT>` |
+
+    An unknown or missing key is `401` with an empty body. Every call is scoped to the host the key
+    belongs to: another host's tenants, builds and secrets look exactly like ones that do not exist.
+
+    ## JSON conventions
+
+    Responses that are proto messages (`whoami`, `activations`, `active-version`, `embed-token`) use the
+    canonical protobuf JSON mapping: camelCase field names, enums as their proto names (for example
+    `VERSION_STATE_PUBLISHED`), timestamps as RFC 3339 strings, bytes as base64, and every field present
+    even when it has its default value (`"enabled": false`, never omitted).
+
+    ## Errors
+
+    Two shapes exist today, depending on the endpoint (both are stable):
+
+    * `LegacyError`: `{ "error": "<human text>" }` for the original endpoints (`embed-token`,
+      `activations`, `active-version`, `egress-allowlist`, `secrets`, `hook-event`,
+      `customization-request`).
+    * `Error`: `{ "error": "<code>", "message": "<human text>" }` for the `builds` endpoints and
+      anything added after them. Always branch on `error` for these.
+
+    ## Embed token JWT
+
+    `POST /embed-token` returns an ES256 JWT. The site passes it through to `embed.js`; plugins send it to
+    the platform. Anything that wants to trust one (for example a data API reached through the egress
+    proxy with `{{hoc:token}}`) verifies it locally:
+
+    | Item | Value |
+    |---|---|
+    | Header | `alg: ES256`, `typ: JWT`, `kid: es256-<yyyyMMddHHmmss>` (the signing key id) |
+    | `iss` | `handofclient` |
+    | `aud` | `handofclient-platform-api` |
+    | `sub` | The user id the site passed to `embed-token` (opaque to the platform) |
+    | `jti` | Unique token id (32 hex characters) |
+    | `hid` | Host id |
+    | `tid` | Tenant id |
+    | `pkg` | Package id |
+    | `ver` | Package version the token is for |
+    | `slot` | Slot id |
+    | `scope` | Space-delimited scopes granted by that version's manifest (`permissions.scopes`); never caller-supplied |
+    | `xv` | `"1"` only when the site asked for an explicit version; absent otherwise |
+    | `nbf` / `exp` | Issue time / issue time + 8 minutes |
+
+    Verification: fetch `GET /host/v1/jwks`, pick the key whose `kid` matches the token header, verify
+    the ES256 signature, then check `iss`, `aud`, `nbf` and `exp` with at most 30 seconds of clock skew.
+    The platform serves its JWKS from a 60 second cache, and keeps a retired signing key in the set for
+    24 hours so tokens issued just before a rotation still verify. Cache the JWKS for a few minutes and
+    refetch once on an unknown `kid` before rejecting.
+
+    ## Placeholders substituted by the egress proxy
+
+    Plugins call the outside world only through the egress proxy (`gRPC` tag). Two placeholders are
+    replaced server-side, so the plugin never sees the value:
+
+    | Placeholder | Replaced with | Where it is substituted | Rules |
+    |---|---|---|---|
+    | `{{secret:name}}` | The tenant's vault value for `name` (`PUT /secrets`) | Request URL and header values; **not** the body | `name` is `[a-z0-9_-]{1,64}`. Substituted before the allowlist and SSRF checks, so those run against the final URL. An unset name fails the call (`FAILED_PRECONDITION`, naming the missing secrets); a placeholder is never sent literally. |
+    | `{{hoc:token}}` | The caller's own embed JWT, verbatim (same expiry; not re-minted) | Header values only | Allowed only when the target hostname is one of the host's **registered origins** (not merely on the egress allowlist), otherwise `PERMISSION_DENIED`. This is how a site's own API learns which user is calling: it verifies the JWT against `/host/v1/jwks`. |
+
+    ## Planned operations
+
+    Operations marked `x-status: planned` (`POST /builds/{id}/reply`, `PUT /data-sources`) are specified
+    here so site implementers and the platform build against one contract, but are not yet served;
+    calling one today answers `404`. Everything else is implemented.
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+servers:
+  - url: "{apiBaseUrl}"
+    description: The hosted platform. `apiBaseUrl` is given to you at onboarding.
+    variables:
+      apiBaseUrl:
+        default: https://hocapi.panglosstechnologies.com
+tags:
+  - name: Auth and discovery
+    description: Public keys and the calling host's own record.
+  - name: Embed tokens
+    description: Mint the short-lived JWT that lets a plugin load.
+  - name: Builds
+    description: The customization loop - start a build, read its status, answer a question.
+  - name: Tenant configuration
+    description: Egress allowlist, secrets vault and data sources.
+  - name: Hooks
+    description: Relay a host-side event to the destination a package declared.
+  - name: Legacy
+    description: Superseded by Builds; kept for existing integrations.
+  - name: Bundles
+    description: Public bundle serving.
+  - name: gRPC
+    description: |
+      Services that exist only as gRPC / grpc-web: host registration (operator-only) and the egress proxy
+      (plugin-only). Each is a unary `POST` to `/<package>.<Service>/<Method>` with content type
+      `application/grpc-web+proto` (or `application/grpc-web-text`) or native gRPC. The schemas here show the
+      logical message; the wire encoding is protobuf per `proto/handofclient/v1/*.proto`, so use a
+      generated client in practice.
+
+      Every RPC and its auth mode, for completeness:
+
+      | Service | RPCs | Auth |
+      |---|---|---|
+      | `PackageRegistry` | `RegisterHost`, `AddHostOrigins`, `RotateApiKey`, `DeleteHost`, `RotateWebhookSecret`, `ListHosts` | super-admin key |
+      | `PackageRegistry` | `PublishVersion`, `ListPackages`, `ListVersions`, `Activate`, `Pin`, `Rollback`, `SetSlotEnabled`, `SetTenantEgressAllowlist`, `GetTenantEgressAllowlist`, `ListActivations`, `WhoAmI` | host API key |
+      | `PackageRegistry` | `GetActiveVersion` | public |
+      | `TokenService` | `IssueEmbedToken`, `RefreshEmbedToken`, `GetJwks` | public (credentials are in the message) |
+      | `Entitlement` | `CheckFeatures`, `ReportUsage` | embed token |
+      | `Entitlement` | `SetTenantFeatures`, `GetTenantFeatures` | host API key |
+      | `TenantStorage` | `Get`, `Set`, `Delete`, `FileExists`, `ReadFile`, `WriteFile` | embed token |
+      | `EgressProxy` | `Send` | embed token |
+      | `AuditLog` | `Query` | host API key |
+
+      With a super-admin key, host-scoped RPCs additionally need `x-hoc-host: <hostId>` to say which host
+      to act as; a host API key cannot name a different host.
+security:
+  - hostApiKey: []
+paths:
+  /host/v1/jwks:
+    get:
+      tags: [Auth and discovery]
+      operationId: getJwks
+      summary: Public keys that verify embed tokens.
+      description: Public, no authentication. See "Embed token JWT" above for how to verify.
+      security: []
+      responses:
+        "200":
+          description: An RFC 7517 JWK Set of ES256 (P-256) keys.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JwkSet" }
+  /host/v1/whoami:
+    get:
+      tags: [Auth and discovery]
+      operationId: whoAmI
+      summary: The calling host's own record.
+      description: Useful as a credentials check. Never includes the API key or webhook secret.
+      responses:
+        "200":
+          description: The host.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [host]
+                properties:
+                  host: { $ref: "#/components/schemas/Host" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /host/v1/activations:
+    get:
+      tags: [Auth and discovery]
+      operationId: listActivations
+      summary: List this host's tenant activations.
+      description: |
+        Which package version is active in which slot for which tenant. Offset paging: pass the previous
+        response's `page.nextPageToken` as `pageToken`. Sorted by tenant, package, slot.
+      parameters:
+        - { name: tenantId, in: query, schema: { type: string } }
+        - { name: packageId, in: query, schema: { type: string } }
+        - { name: slotId, in: query, schema: { type: string } }
+        - { name: pageToken, in: query, schema: { type: string } }
+        - name: pageSize
+          in: query
+          description: Default 50, maximum 200.
+          schema: { type: integer, minimum: 1, maximum: 200 }
+      responses:
+        "200":
+          description: A page of activations.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [activations, page]
+                properties:
+                  activations:
+                    type: array
+                    items: { $ref: "#/components/schemas/Activation" }
+                  page: { $ref: "#/components/schemas/PageResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /host/v1/active-version:
+    get:
+      tags: [Auth and discovery]
+      operationId: getActiveVersion
+      summary: The version active for a tenant slot, with its manifest.
+      description: What a slot is (its manifest declaration) and which version to load, in one call.
+      parameters:
+        - { name: tenantId, in: query, required: true, schema: { type: string } }
+        - { name: packageId, in: query, required: true, schema: { type: string } }
+        - { name: slotId, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: The active version.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [version, slot, enabled]
+                properties:
+                  version: { $ref: "#/components/schemas/PackageVersion" }
+                  slot: { $ref: "#/components/schemas/SlotDecl" }
+                  enabled: { type: boolean }
+        "400": { $ref: "#/components/responses/LegacyBadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: No activation, the active version is gone, or the slot is not in its manifest.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegacyError" }
+  /host/v1/embed-token:
+    post:
+      tags: [Embed tokens]
+      operationId: issueEmbedToken
+      summary: Mint an embed token for a user, package and slot.
+      description: |
+        Call from the site's server after it has authenticated the user from its own session; the
+        platform trusts `userId` completely and records it as the JWT `sub`. Tokens live 8 minutes.
+        Scopes come from the version's manifest, never from the request. See "Embed token JWT" above.
+
+        **Without `version`**: uses the tenant's activated version of the package/slot; fails with `412`
+        when there is no enabled activation.
+
+        **With `version`**: the site chooses the exact version (for per-user pins). No tenant activation is
+        needed, but the package must have been published by this host (`403` otherwise), and the version
+        must exist and be published (`404`), not withdrawn (`409`), and declare `slotId` (`400`). The
+        token is marked `xv: "1"`, so a refresh stays on that version.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EmbedTokenRequest" }
+            example:
+              tenantId: acme-prod
+              userId: user-42
+              packageId: acme/f-req-123
+              version: 1.2.0
+              slotId: main
+      responses:
+        "200":
+          description: Token issued.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EmbedTokenResponse" }
+        "400":
+          description: Missing field, or (with `version`) the slot is not declared in that version's manifest.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegacyError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403":
+          description: The package was not published by this host.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegacyError" }
+        "404":
+          description: Unknown package or version.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegacyError" }
+        "409":
+          description: The version has been withdrawn.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegacyError" }
+        "412":
+          description: No active, enabled activation for this tenant/slot (only when `version` is omitted).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegacyError" }
+  /host/v1/builds:
+    post:
+      tags: [Builds]
+      operationId: createBuild
+      summary: Start a build for a feature request.
+      description: |
+        Records the build, then (best effort) creates the build task and dispatches the build automation.
+        A failure to create the task or dispatch never fails this call: the build is already durably
+        recorded and is retried by the platform. Progress arrives at the host's webhook
+        (`build.status`, `build.version` - see `site-hoc-api.yaml`, `/webhook`) or by polling
+        `GET /builds/{id}`. The snapshot is kept only while the build runs and is deleted when it ends
+        (`Success` or `Rejected`).
+
+        **Idempotent.** `(host, tenantId, requestRef)` is unique: repeating a request with the same
+        `requestRef` returns the original `buildId` and starts nothing new, so a retry after a network
+        error is safe.
+
+        **Limits.** `text` is trimmed and at most 20000 characters; `snapshot` must be a JSON object of at
+        most 2 MiB serialised; `tenantId`, `requestRef`, `user.id` and `feature.ref` are at most 128
+        characters; `user.name` 200; `user.email` 320; `feature.packageId` 200.
+
+        **Package id.** Unless `feature.packageId` is given, the package is `{hostId}/f-{featureRef}`
+        (a package id is bound forever to the first host that publishes it). With no `feature`, the
+        request's own `requestRef` is the feature ref: the first build of a request defines the feature.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BuildRequest" }
+            example:
+              tenantId: acme-prod
+              requestRef: req-123
+              user: { id: user-42, name: Pat Lee, email: pat@acme.example }
+              text: Show overdue orders in red and add a Total column.
+              mode: inject
+              kind: page-override
+      responses:
+        "200":
+          description: Build recorded (or already existed for this `requestRef`).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [buildId]
+                properties:
+                  buildId: { type: string, description: "Opaque 32-character hex id." }
+        "400":
+          description: Validation failed (`invalid_request`; `message` names the field).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500":
+          description: The build could not be recorded (`build_not_recorded`). Nothing was stored; retry.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /host/v1/builds/{id}:
+    get:
+      tags: [Builds]
+      operationId: getBuild
+      summary: Read a build's status.
+      description: For sites that cannot receive webhooks (for example local development).
+      parameters:
+        - $ref: "#/components/parameters/BuildId"
+      responses:
+        "200":
+          description: The build.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Build" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: No such build, or it belongs to another host (`build_not_found`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /host/v1/builds/{id}/reply:
+    post:
+      tags: [Builds]
+      operationId: replyToBuild
+      summary: Answer a NeedsInfo question.
+      x-status: planned
+      description: |
+        Sends the requester's answer back to the build and returns it to `InProgress`. Only valid while
+        the build is `NeedsInfo`.
+      parameters:
+        - $ref: "#/components/parameters/BuildId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: { type: string, minLength: 1, maxLength: 20000 }
+      responses:
+        "200":
+          description: Reply accepted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [buildId, status]
+                properties:
+                  buildId: { type: string }
+                  status: { $ref: "#/components/schemas/BuildStatus" }
+        "400":
+          description: Empty or oversized text (`invalid_request`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: No such build (`build_not_found`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: The build is not waiting for an answer (`build_not_awaiting_reply`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /host/v1/data-sources:
+    put:
+      tags: [Tenant configuration]
+      operationId: putDataSources
+      summary: Describe the site's APIs so the build can use them.
+      x-status: planned
+      description: |
+        Whole-list replace of the tenant's data sources (same semantics as `PUT /egress-allowlist`). The
+        build only uses endpoints described here. Each `baseUrl` hostname is **added** to the tenant's
+        egress allowlist automatically (existing allowlist entries are never removed by this call).
+        Credentials are not sent here: name a vault secret in `auth.secret` and set its value with
+        `PUT /secrets`; iframe plugins send `{{secret:name}}`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tenantId, dataSources]
+              properties:
+                tenantId: { type: string }
+                dataSources:
+                  type: array
+                  items: { $ref: "#/components/schemas/DataSource" }
+            example:
+              tenantId: acme-prod
+              dataSources:
+                - name: orders-api
+                  baseUrl: https://api.site.example
+                  openapi: { openapi: 3.0.3, info: { title: Orders, version: "1" }, paths: {} }
+                  auth: { type: bearer, secret: orders-api-key }
+      responses:
+        "200":
+          description: Saved.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tenantId, dataSources, allowedHostsAdded]
+                properties:
+                  tenantId: { type: string }
+                  dataSources:
+                    type: array
+                    items: { type: string }
+                    description: Names of the saved data sources.
+                  allowedHostsAdded:
+                    type: array
+                    items: { type: string }
+                    description: Hostnames newly added to the egress allowlist by this call.
+        "400":
+          description: Invalid data source (`invalid_request`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /host/v1/egress-allowlist:
+    get:
+      tags: [Tenant configuration]
+      operationId: getEgressAllowlist
+      summary: Hostnames plugins may reach for this tenant.
+      description: |
+        A plugin call is allowed only when its target hostname is in **both** the package manifest's
+        `permissions.egressHosts` and this tenant list.
+      parameters:
+        - { name: tenantId, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: The list.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EgressAllowlist" }
+        "400": { $ref: "#/components/responses/LegacyBadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    put:
+      tags: [Tenant configuration]
+      operationId: putEgressAllowlist
+      summary: Replace the tenant's egress allowlist.
+      description: |
+        Whole-list replace, so two admin screens racing each other cannot silently merge their views.
+        Entries are lower-cased, trimmed and de-duplicated. Each must be a bare **hostname**: no scheme,
+        path, port or wildcard (those would silently never match).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tenantId, allowedHosts]
+              properties:
+                tenantId: { type: string }
+                allowedHosts:
+                  type: array
+                  items: { type: string, examples: [api.site.example] }
+      responses:
+        "200":
+          description: The stored list.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EgressAllowlist" }
+        "400":
+          description: Missing `tenantId`, or entries that are not valid hostnames (named in the message).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegacyError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /host/v1/secrets:
+    get:
+      tags: [Tenant configuration]
+      operationId: listSecrets
+      summary: Names of the tenant's vault secrets.
+      description: Names and timestamps only. There is deliberately no way to read a value back.
+      parameters:
+        - { name: tenantId, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: The secrets.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tenantId, secrets]
+                properties:
+                  tenantId: { type: string }
+                  secrets:
+                    type: array
+                    items:
+                      type: object
+                      required: [name, updatedAt]
+                      properties:
+                        name: { type: string }
+                        updatedAt: { type: string, format: date-time }
+                        updatedBy: { type: [string, "null"] }
+        "400": { $ref: "#/components/responses/LegacyBadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    put:
+      tags: [Tenant configuration]
+      operationId: putSecret
+      summary: Create or replace one secret.
+      description: |
+        Plugins reference it as `{{secret:name}}` in request URLs and headers (see "Placeholders" above);
+        the value never reaches the plugin. The audit log records the name, never the value.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tenantId, name, value]
+              properties:
+                tenantId: { type: string }
+                name: { type: string, pattern: "^[a-z0-9_-]{1,64}$" }
+                value: { type: string, minLength: 1, description: "At most 8192 bytes of UTF-8." }
+                updatedBy: { type: string, description: "Free-text actor for the audit trail." }
+      responses:
+        "200":
+          description: Stored.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tenantId, name, updatedAt]
+                properties:
+                  tenantId: { type: string }
+                  name: { type: string }
+                  updatedAt: { type: string, format: date-time }
+        "400":
+          description: Missing `tenantId`, bad name, empty value (use DELETE) or value over 8192 bytes.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegacyError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    delete:
+      tags: [Tenant configuration]
+      operationId: deleteSecret
+      summary: Delete one secret.
+      parameters:
+        - { name: tenantId, in: query, required: true, schema: { type: string } }
+        - { name: name, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tenantId, name, deleted]
+                properties:
+                  tenantId: { type: string }
+                  name: { type: string }
+                  deleted: { type: boolean, const: true }
+        "400": { $ref: "#/components/responses/LegacyBadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: No such secret.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegacyError" }
+  /host/v1/hook-event:
+    post:
+      tags: [Hooks]
+      operationId: relayHookEvent
+      summary: Relay a host-side action hook (for example a WordPress action) to the package's declared destination.
+      description: |
+        The caller names a **hook**, never a URL. The destination is the `webhookUrl` the package
+        declared for that hook in its manifest (`hooks[]`, `kind: HOOK_KIND_ACTION`), and must be an
+        absolute `https://` URL whose hostname is in both the manifest's `egressHosts` and the tenant's
+        egress allowlist and passes the platform's SSRF checks. Otherwise the call is refused (and the
+        refusal is audited): this endpoint is not an open relay.
+
+        Delivery is at-most-once and unretried, with a 5 second timeout. The relayed request is a `POST`
+        of JSON `{ event: "hook.fired", hook, hostId, tenantId, packageId, slotId, version, firedAt, args }`
+        with headers `X-HandOfClient-Event: hook.fired`, `X-HandOfClient-Hook: <hook>` and, when the host
+        has a webhook secret, `X-HandOfClient-Signature: sha256=<hex HMAC-SHA256 of the raw body>`
+        (same signing as webhooks, `site-hoc-api.yaml`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tenantId, packageId, slotId, hook]
+              properties:
+                tenantId: { type: string }
+                packageId: { type: string }
+                slotId: { type: string }
+                hook: { type: string, description: "Host-side hook name, for example `save_post`." }
+                args:
+                  type: array
+                  description: Positional hook arguments, already reduced to JSON scalars by the caller.
+                  items: {}
+      responses:
+        "200":
+          description: Attempted. `delivered` is false when the destination failed or returned non-2xx.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [hook, delivered]
+                properties:
+                  hook: { type: string }
+                  delivered: { type: boolean }
+        "400":
+          description: A required field is missing.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegacyError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403":
+          description: Destination not in both allowlists, or it resolves to a disallowed address.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegacyError" }
+        "404":
+          description: The package declares no action hook with that name.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegacyError" }
+        "412":
+          description: No active, enabled activation for this tenant/slot, or its version is missing.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegacyError" }
+        "422":
+          description: The declared `webhookUrl` is not an absolute https:// URL.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegacyError" }
+  /host/v1/customization-request:
+    post:
+      tags: [Legacy]
+      operationId: createCustomizationRequest
+      deprecated: true
+      summary: "Superseded by POST /builds."
+      description: |
+        Saves a free-text request on the platform and creates a task. No user id, no page context, and its
+        status is never updated. Use `POST /builds`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tenantId]
+              properties:
+                tenantId: { type: string }
+                requesterName: { type: string }
+                requesterEmail: { type: string }
+                requestText: { type: string }
+      responses:
+        "200":
+          description: Recorded.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [requestId]
+                properties:
+                  requestId: { type: string }
+                  taskId: { type: [string, "null"] }
+        "400":
+          description: Missing tenant or invalid text.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegacyError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    get:
+      tags: [Legacy]
+      operationId: listCustomizationRequests
+      deprecated: true
+      summary: "Superseded by GET /builds/{id}."
+      parameters:
+        - { name: tenantId, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: The tenant's requests.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tenantId, requests]
+                properties:
+                  tenantId: { type: string }
+                  requests:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        requestText: { type: string }
+                        requesterName: { type: string }
+                        requesterEmail: { type: string }
+                        atUtc: { type: string, format: date-time }
+                        status: { type: string }
+                        taskId: { type: [string, "null"] }
+        "400": { $ref: "#/components/responses/LegacyBadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /embed/{packageIdB64}/{version}/{path}:
+    get:
+      tags: [Bundles]
+      operationId: getBundleFile
+      summary: Serve one file of a published plugin bundle.
+      description: |
+        Public, no authentication. Used by the plugin iframe (`index.html`) and, for inject mode, as the
+        `src` of a `<script type="module" integrity="sha256-...">`. CORS allows any origin so the browser
+        can integrity-check the script cross-origin. Files are immutable per version
+        (`Cache-Control: public, max-age=31536000, immutable`).
+
+        `packageIdB64` is the package id's UTF-8 bytes, base64url without padding (`+` -> `-`, `/` -> `_`,
+        `=` removed), because package ids contain `/`. An empty `path` serves `index.html`.
+
+        Content-Security-Policy is set by the platform: `frame-ancestors` is the host's registered origins
+        (`'none'` if there are none); normal bundles get `connect-src 'self' <platform origin>; script-src
+        'self'; object-src 'none'`, which is what forces all plugin network traffic through the egress
+        proxy; bundles published with `strictCsp` get a locked-down policy with no network access.
+      security: []
+      parameters:
+        - { name: packageIdB64, in: path, required: true, schema: { type: string } }
+        - { name: version, in: path, required: true, schema: { type: string } }
+        - name: path
+          in: path
+          required: true
+          allowReserved: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: The file.
+          content:
+            "*/*":
+              schema: { type: string, format: binary }
+        "404":
+          description: Unknown package id encoding, version, or file.
+  /handofclient.v1.PackageRegistry/RegisterHost:
+    post:
+      tags: [gRPC]
+      operationId: registerHost
+      summary: Register a host (operator-only).
+      description: |
+        Performed by the platform operator when a site is onboarded; the result is what you are given.
+        Creates the host and returns, **once**, its API key and (only if a `webhookUrl` was supplied) its
+        webhook secret. Neither can be retrieved again; lost keys are replaced with `RotateApiKey` /
+        `RotateWebhookSecret`.
+
+        `registeredOrigins` are the site's page origins. They are the origins allowed to frame the host's
+        plugins (`frame-ancestors`) and the only destinations `{{hoc:token}}` is sent to. A `webhookUrl`
+        can only be set here; it should point at the site's `hoc/webhook` endpoint.
+
+        gRPC errors: `INVALID_ARGUMENT` (no `hostId`), `ALREADY_EXISTS`, `UNAUTHENTICATED` (bad super-admin
+        key). Related super-admin RPCs: `AddHostOrigins` (append-only), `RotateApiKey` (the old key stops
+        working immediately), `RotateWebhookSecret`, `DeleteHost` (removes every row of the host; needs
+        `confirmHostId` equal to `hostId`), `ListHosts`.
+      security:
+        - superAdminKey: []
+      requestBody:
+        required: true
+        content:
+          application/grpc-web+proto:
+            schema:
+              type: object
+              required: [host]
+              properties:
+                host:
+                  type: object
+                  required: [hostId]
+                  properties:
+                    hostId: { type: string }
+                    displayName: { type: string }
+                    registeredOrigins:
+                      type: array
+                      items: { type: string, format: uri }
+                    webhookUrl: { type: string, format: uri }
+      responses:
+        "200":
+          description: Registered.
+          content:
+            application/grpc-web+proto:
+              schema:
+                type: object
+                required: [host, apiKey, webhookSecret]
+                properties:
+                  host: { $ref: "#/components/schemas/Host" }
+                  apiKey: { type: string, description: "Returned once. Sent later as `x-api-key`." }
+                  webhookSecret: { type: string, description: "Returned once; empty when no `webhookUrl` was given." }
+  /handofclient.v1.EgressProxy/Send:
+    post:
+      tags: [gRPC]
+      operationId: egressSend
+      summary: Make an outbound HTTP call on behalf of a plugin.
+      description: |
+        The only network door a plugin has (bundle CSP pins `connect-src` to the platform). Called by the
+        plugin SDK's `hoc.http.send`; sites do not call it. Authenticated by the embed token, and
+        `scope` must equal the token's `{hid, tid, pkg}` (`PERMISSION_DENIED` otherwise).
+
+        Processing order: per-tenant rate limit; `{{secret:name}}` substitution in URL and headers; URL
+        must be absolute `http(s)`; the target hostname must be in **both** the manifest's `egressHosts`
+        and the tenant allowlist; DNS is resolved once and the resolved address is checked and pinned
+        (private, loopback, link-local and metadata ranges are refused, defeating DNS rebinding);
+        then `{{hoc:token}}` substitution in header values for registered origins only; then the call.
+        Every call is audited.
+
+        Limits: `timeoutMs` is clamped to 1000-30000 (default 10000 when 0); responses over 10 MiB fail.
+
+        | gRPC status | Cause |
+        |---|---|
+        | `PERMISSION_DENIED` | Scope mismatch, host not on both allowlists, disallowed address, or `{{hoc:token}}` toward a non-registered origin |
+        | `RESOURCE_EXHAUSTED` | Rate limit, or response over 10 MiB |
+        | `INVALID_ARGUMENT` | URL not absolute http(s), or unspecified method |
+        | `FAILED_PRECONDITION` | A `{{secret:name}}` has no value (names listed), or the token's version no longer exists |
+        | `DEADLINE_EXCEEDED` | Timeout |
+        | `UNAVAILABLE` | Connection error to the target |
+
+        A response from the target with any HTTP status (including 4xx/5xx) is a successful RPC; read
+        `statusCode`.
+      security:
+        - embedToken: []
+      requestBody:
+        required: true
+        content:
+          application/grpc-web+proto:
+            schema:
+              type: object
+              required: [scope, method, url]
+              properties:
+                scope:
+                  type: object
+                  required: [hostId, tenantId, packageId]
+                  properties:
+                    hostId: { type: string }
+                    tenantId: { type: string }
+                    packageId: { type: string }
+                method:
+                  type: string
+                  enum: [HTTP_METHOD_GET, HTTP_METHOD_POST, HTTP_METHOD_PUT, HTTP_METHOD_PATCH, HTTP_METHOD_DELETE, HTTP_METHOD_HEAD]
+                url: { type: string }
+                headers:
+                  type: array
+                  items:
+                    type: object
+                    required: [name, value]
+                    properties:
+                      name: { type: string }
+                      value: { type: string }
+                body: { type: string, contentEncoding: base64, description: "Raw bytes; `{{secret:}}` is not substituted here." }
+                timeoutMs: { type: integer }
+            example:
+              scope: { hostId: acme, tenantId: acme-prod, packageId: acme/f-req-123 }
+              method: HTTP_METHOD_GET
+              url: https://api.site.example/orders?status=open
+              headers:
+                - { name: Authorization, value: "Bearer {{secret:orders-api-key}}" }
+              timeoutMs: 10000
+      responses:
+        "200":
+          description: The target's response.
+          content:
+            application/grpc-web+proto:
+              schema:
+                type: object
+                required: [statusCode]
+                properties:
+                  statusCode: { type: integer }
+                  headers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name: { type: string }
+                        value: { type: string }
+                  body: { type: string, contentEncoding: base64 }
+components:
+  securitySchemes:
+    hostApiKey:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: The host API key returned once at registration. Server-side only.
+    superAdminKey:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: The platform operator's key. Host-scoped RPCs additionally need `x-hoc-host`.
+    embedToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: The embed JWT from `POST /host/v1/embed-token`.
+  parameters:
+    BuildId:
+      name: id
+      in: path
+      required: true
+      description: The `buildId` returned by `POST /builds`.
+      schema: { type: string }
+  responses:
+    Unauthorized:
+      description: Missing or unknown `x-api-key`. Empty body.
+    LegacyBadRequest:
+      description: A required parameter is missing.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/LegacyError" }
+  schemas:
+    LegacyError:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string, description: "Human-readable detail. Do not branch on it." }
+    Error:
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          type: string
+          description: |
+            Stable code. Currently `invalid_request`, `build_not_found`, `build_not_recorded`,
+            `build_not_awaiting_reply`.
+        message: { type: string }
+    PageResponse:
+      type: object
+      required: [nextPageToken]
+      properties:
+        nextPageToken: { type: string, description: "Empty string when there are no more pages." }
+    JwkSet:
+      type: object
+      required: [keys]
+      properties:
+        keys:
+          type: array
+          items:
+            type: object
+            required: [kty, crv, x, y, kid, use, alg]
+            properties:
+              kty: { type: string, const: EC }
+              crv: { type: string, const: P-256 }
+              x: { type: string }
+              y: { type: string }
+              kid: { type: string, examples: [es256-20261009120000] }
+              use: { type: string, const: sig }
+              alg: { type: string, const: ES256 }
+    Host:
+      type: object
+      required: [hostId, displayName, registeredOrigins, webhookUrl, createdAt]
+      properties:
+        hostId: { type: string }
+        displayName: { type: string }
+        registeredOrigins:
+          type: array
+          items: { type: string }
+        webhookUrl: { type: string, description: "Empty string when none." }
+        createdAt: { type: string, format: date-time }
+    Activation:
+      type: object
+      required: [scope, slotId, activeVersion, pinned, enabled, activatedAt, activatedBy]
+      properties:
+        scope:
+          type: object
+          required: [hostId, tenantId, packageId]
+          properties:
+            hostId: { type: string }
+            tenantId: { type: string }
+            packageId: { type: string }
+        slotId: { type: string }
+        activeVersion: { type: string }
+        pinned: { type: boolean }
+        enabled: { type: boolean }
+        activatedAt: { type: string, format: date-time }
+        activatedBy: { type: string }
+    EmbedTokenRequest:
+      type: object
+      required: [tenantId, userId, packageId, slotId]
+      properties:
+        tenantId: { type: string }
+        userId: { type: string, description: "Opaque to the platform; becomes the JWT `sub`. Must come from the site's own session." }
+        packageId: { type: string }
+        slotId: { type: string }
+        version:
+          type: string
+          description: Exact version to issue for (host-owned packages only). Omit to use the tenant's activated version.
+    EmbedTokenResponse:
+      type: object
+      required: [token, expiresAt]
+      properties:
+        token: { type: string, description: "ES256 JWT." }
+        expiresAt: { type: string, format: date-time }
+    BuildMode:
+      type: string
+      enum: [inject, iframe]
+      description: How the built feature runs on the site. Case-insensitive on input, lower case on output.
+    BuildKind:
+      type: string
+      enum: [slot, page-override, new-page]
+      description: Case-insensitive on input. Omit to let the build automation decide.
+    BuildStatus:
+      type: string
+      enum: [InProgress, NeedsInfo, Rejected, Success]
+    BuildRequest:
+      type: object
+      required: [tenantId, requestRef, user, text, mode]
+      properties:
+        tenantId: { type: string, maxLength: 128 }
+        requestRef:
+          type: string
+          maxLength: 128
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+          description: The site's own id for the request. Echoed in every event. Unique per (host, tenant).
+        user:
+          type: object
+          required: [id]
+          properties:
+            id: { type: string, maxLength: 128 }
+            name: { type: string, maxLength: 200 }
+            email: { type: string, maxLength: 320 }
+        text: { type: string, minLength: 1, maxLength: 20000 }
+        snapshot:
+          type: [object, "null"]
+          description: Page snapshot (see `PageSnapshot` in `site-hoc-api.yaml`). At most 2 MiB serialised.
+          additionalProperties: true
+        feature:
+          type: object
+          description: Present when changing an existing feature (a new version of it).
+          required: [ref]
+          properties:
+            ref: { type: string, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]*$" }
+            packageId: { type: string, maxLength: 200, description: "Defaults to `{hostId}/f-{ref}`." }
+        mode: { $ref: "#/components/schemas/BuildMode" }
+        kind: { $ref: "#/components/schemas/BuildKind" }
+    Build:
+      type: object
+      required: [buildId, tenantId, requestRef, featureRef, packageId, mode, status, createdAt, updatedAt]
+      properties:
+        buildId: { type: string }
+        tenantId: { type: string }
+        requestRef: { type: string }
+        featureRef: { type: string }
+        packageId: { type: string }
+        mode: { $ref: "#/components/schemas/BuildMode" }
+        kind: { oneOf: [{ $ref: "#/components/schemas/BuildKind" }, { type: "null" }] }
+        status: { $ref: "#/components/schemas/BuildStatus" }
+        message: { type: [string, "null"], description: "The NeedsInfo question or the Rejected reason." }
+        taskId: { type: [string, "null"], description: "Build task id once created; null until then." }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    EgressAllowlist:
+      type: object
+      required: [tenantId, allowedHosts]
+      properties:
+        tenantId: { type: string }
+        allowedHosts:
+          type: array
+          items: { type: string }
+    DataSource:
+      type: object
+      required: [name, baseUrl]
+      properties:
+        name: { type: string }
+        baseUrl: { type: string, format: uri }
+        openapi:
+          type: object
+          additionalProperties: true
+        auth:
+          type: object
+          required: [type, secret]
+          properties:
+            type: { type: string, enum: [bearer] }
+            secret: { type: string, pattern: "^[a-z0-9_-]{1,64}$" }
+    # --- Manifest (canonical protobuf JSON of proto/handofclient/v1/package_registry.proto) ---
+    VersionState:
+      type: string
+      enum: [VERSION_STATE_UNSPECIFIED, VERSION_STATE_PUBLISHED, VERSION_STATE_YANKED]
+    SlotKind:
+      type: string
+      enum: [SLOT_KIND_UNSPECIFIED, SLOT_KIND_PAGE, SLOT_KIND_OVERRIDE, SLOT_KIND_PANEL]
+    SlotDecl:
+      type: object
+      properties:
+        slotId: { type: string }
+        kind: { $ref: "#/components/schemas/SlotKind" }
+        title: { type: string }
+        showInNav: { type: boolean }
+        defaultEnabled: { type: boolean }
+        targetPath: { type: string, description: "`SLOT_KIND_PAGE`: mounted under `ext/{targetPath}`." }
+        matchPath: { type: string, description: "`SLOT_KIND_OVERRIDE`: the host route it replaces." }
+        aliasGroupKey: { type: string }
+        hostPanelId: { type: string, description: "`SLOT_KIND_PANEL`: the named region the host page declares." }
+    HookDecl:
+      type: object
+      properties:
+        hook: { type: string }
+        kind: { type: string, enum: [HOOK_KIND_UNSPECIFIED, HOOK_KIND_ACTION, HOOK_KIND_FILTER] }
+        priority: { type: integer }
+        acceptedArgs: { type: integer }
+        webhookUrl: { type: string, description: "ACTION only. Absolute https URL the platform relays to." }
+        argIndexes:
+          type: array
+          items: { type: integer }
+        transform:
+          type: object
+          description: FILTER only. A declarative transform evaluated by the host with no network call.
+          properties:
+            kind:
+              type: string
+              enum: [FILTER_TRANSFORM_KIND_UNSPECIFIED, FILTER_TRANSFORM_KIND_APPEND, FILTER_TRANSFORM_KIND_PREPEND, FILTER_TRANSFORM_KIND_REPLACE, FILTER_TRANSFORM_KIND_CONST]
+            text: { type: string }
+            replacements:
+              type: object
+              additionalProperties: { type: string }
+    Manifest:
+      type: object
+      properties:
+        manifestVersion: { type: integer, const: 1 }
+        packageId: { type: string }
+        publisher: { type: string }
+        name: { type: string }
+        description: { type: string }
+        version: { type: string, description: "Semver." }
+        hostId: { type: string }
+        tenantKey: { type: string, description: "Empty means any tenant may activate." }
+        bundle:
+          type: object
+          properties:
+            entryPoints:
+              type: object
+              additionalProperties: { type: string }
+            bundleHash: { type: string }
+            fileIntegrity:
+              type: object
+              additionalProperties: { type: string }
+        slots:
+          type: array
+          items: { $ref: "#/components/schemas/SlotDecl" }
+        permissions:
+          type: object
+          properties:
+            scopes:
+              type: array
+              items: { type: string }
+            egressHosts:
+              type: array
+              items: { type: string }
+        entitlement:
+          type: object
+          properties:
+            requiredFeatures:
+              type: array
+              items: { type: string }
+        updatePolicy:
+          type: object
+          properties:
+            kind: { type: string, enum: [UPDATE_POLICY_KIND_UNSPECIFIED, UPDATE_POLICY_KIND_PINNED, UPDATE_POLICY_KIND_CHANNEL] }
+            channel: { type: string, enum: [CHANNEL_UNSPECIFIED, CHANNEL_STABLE, CHANNEL_BETA] }
+        hooks:
+          type: array
+          items: { $ref: "#/components/schemas/HookDecl" }
+        strictCsp: { type: boolean }
+    PackageVersion:
+      type: object
+      properties:
+        packageId: { type: string }
+        version: { type: string }
+        manifest: { $ref: "#/components/schemas/Manifest" }
+        state: { $ref: "#/components/schemas/VersionState" }
+        publishedBy: { type: string }
+        publishedAt: { type: string, format: date-time }

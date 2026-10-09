@@ -1,0 +1,998 @@
+openapi: 3.1.0
+info:
+  title: HandOfClient site API (hoc/*)
+  version: 1.0.0
+  summary: The endpoints a customer's site (its "host module") serves for the customization loop.
+  description: |
+    Everything a site must expose so that a signed-in user can type "I want X", have it built, and see
+    the site change for them only. Implement this in any backend language; `platform-host-v1.yaml` is the
+    other half (the calls the site makes to the HandOfClient platform).
+
+    ## Mounting
+
+    All paths below are relative to one prefix on the site, `hoc/` by default (server variable
+    `prefix`). The site mounts exactly three groups:
+
+    | Path | Called by | Purpose |
+    |---|---|---|
+    | `GET hoc/token` | `embed.js` | Mint an embed token for one feature, for the signed-in user |
+    | `hoc/api/*` | the browser components | The features API, answered from the site's own database |
+    | `POST hoc/webhook` | the platform | Build events (HMAC-signed) |
+
+    Relative URLs matter: `embed.js` is configured with relative paths such as `hoc/token`, which resolve
+    against the page URL, so the prefix keeps working when the site is mounted under a sub-path.
+
+    ## Who is "me"
+
+    The site decides who the signed-in user is, from its own session. Every `hoc/api/*` call and
+    `hoc/token` is authenticated by that session cookie (`siteSession` below) and by nothing else.
+    Never take a user id from a request body, query string or header: that would let any visitor act as
+    anyone. A call with no session answers `401 unauthenticated`.
+
+    Because the browser components use cookie authentication, the site must apply its normal CSRF
+    defences to every non-GET call (all bodies are `application/json`, which a cross-site form cannot
+    send, but the site's own CSRF policy still applies).
+
+    ## Errors
+
+    Every error response is `{ "error": "<code>", "message": "<human text>" }` with the HTTP status shown
+    for the code (see `ErrorCode`). `message` is safe to show to the user; `error` is for programs.
+    A feature or request the caller may not see answers `404 not_found`, identical to one that does not
+    exist, so ids cannot be probed.
+
+    ## Visibility and precedence
+
+    A user sees a feature when it is assigned to them or to everyone. When several features target the
+    same path or slot, an assignment to the specific user wins over an assignment to everyone. If two
+    assignments of the same kind still collide on a `page-override` or `new-page` path, the most recently
+    assigned wins. `GET resolve` returns at most one `page-override` / `new-page` feature per path.
+
+    ## Host module responsibilities (not HTTP, but part of the contract)
+
+    * `get_current_user(request)` returns `{ id, name?, email? }` or nothing (then every call is 401).
+    * `is_admin(user)` gates `settings`, `current` (unless owner) and admin-only reads.
+    * `find_users(query)` backs `GET users`.
+    * The site stores requests, snapshots, features, versions, assignments, pins and settings in its own
+      database. The platform keeps only published bundles.
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+servers:
+  - url: "{siteOrigin}/{prefix}"
+    description: The customer's own site.
+    variables:
+      siteOrigin:
+        default: https://site.example
+        description: Origin (and any sub-path) the site is served from.
+      prefix:
+        default: hoc
+        description: Mount prefix. `hoc` unless the site chose otherwise.
+tags:
+  - name: Token
+    description: Embed-token endpoint called by `embed.js`.
+  - name: Requests
+    description: Feature requests typed by users.
+  - name: Features
+    description: Built features, their versions and who sees them.
+  - name: Settings
+    description: The customer's own admin settings.
+  - name: Webhook
+    description: Build events pushed by the platform.
+security:
+  - siteSession: []
+paths:
+  /token:
+    get:
+      tags: [Token]
+      operationId: getEmbedToken
+      summary: Mint an embed token for one feature (called by embed.js).
+      description: |
+        Checks that the feature is visible to the signed-in user, picks the version (the user's pin,
+        else the feature's current version), then calls the platform's `POST /host/v1/embed-token`
+        (`platform-host-v1.yaml`) with `{ tenantId, userId, packageId, version, slotId }` and the host
+        API key, and returns the result. The API key never leaves the server and `userId` always comes
+        from the site's session.
+
+        Without `featureId` the endpoint behaves as the original single-plugin token endpoint: it mints
+        a token for the one package/slot the site hard-wires (no explicit version, so the tenant's
+        activated version). Existing integrations that never pass `featureId` keep working unchanged.
+
+        `embed.js` calls this with cookies, GET, no body. Tokens live 8 minutes; `embed.js` calls again
+        to refresh, so the endpoint must stay cheap and re-check visibility every time (a feature
+        unshared or turned off stops working at the next refresh).
+      security:
+        - siteSession: []
+      parameters:
+        - name: featureId
+          in: query
+          required: false
+          schema: { type: string }
+          description: The site's feature id (`Feature.id`).
+      responses:
+        "200":
+          description: Token issued.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EmbedTokenResponse" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: The chosen version was withdrawn on the platform (`version_unavailable`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "502": { $ref: "#/components/responses/PlatformUnavailable" }
+  /api/requests:
+    post:
+      tags: [Requests]
+      operationId: createRequest
+      summary: Submit a feature request.
+      description: |
+        Stores the request (and snapshot) in the site's database, then starts a platform build with
+        `POST /host/v1/builds`, using the request id as the build's `requestRef`, the user as `user`, and
+        the site's rendering-mode setting as `mode`. If the platform cannot be reached the request is
+        still stored as `InProgress` and the site retries starting the build; the call does not fail.
+        `featureId` makes the request a change to an existing feature (it must be visible to the caller);
+        the resulting build publishes a new version of that feature instead of creating a new one.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateRequestBody" }
+      responses:
+        "201":
+          description: Stored. Status is `InProgress`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SiteRequest" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+    get:
+      tags: [Requests]
+      operationId: listRequests
+      summary: List requests with their status.
+      description: |
+        `scope=mine` (default) returns the caller's own requests, newest first. `scope=all` returns
+        everyone's and needs the `viewAllRequests` setting to allow the caller (`admins` and the caller is
+        an admin, or `everyone`); otherwise `403 forbidden`.
+      parameters:
+        - name: scope
+          in: query
+          schema: { type: string, enum: [mine, all], default: mine }
+        - name: status
+          in: query
+          description: Repeat the parameter to filter on several statuses.
+          schema:
+            type: array
+            items: { $ref: "#/components/schemas/RequestStatus" }
+          style: form
+          explode: true
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: cursor
+          in: query
+          description: Opaque `nextCursor` from the previous page.
+          schema: { type: string }
+      responses:
+        "200":
+          description: A page of requests.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [requests]
+                properties:
+                  requests:
+                    type: array
+                    items: { $ref: "#/components/schemas/SiteRequest" }
+                  nextCursor:
+                    type: [string, "null"]
+                    description: Null when there are no more pages.
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/requests/{id}/reply:
+    post:
+      tags: [Requests]
+      operationId: replyToRequest
+      summary: Answer a NeedsInfo question.
+      description: |
+        Only the requester may reply, and only while the request is `NeedsInfo`. The site forwards the
+        text to the platform (`POST /host/v1/builds/{id}/reply`) and sets the request back to
+        `InProgress`.
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: { type: string, minLength: 1, maxLength: 20000 }
+      responses:
+        "200":
+          description: Reply accepted.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SiteRequest" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: The request is not waiting for an answer (`not_awaiting_reply`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "502": { $ref: "#/components/responses/PlatformUnavailable" }
+  /api/features:
+    get:
+      tags: [Features]
+      operationId: listFeatures
+      summary: Features visible to me.
+      description: |
+        Each feature carries the caller's own state (`pinnedVersion`, `enabled`). `sharing` appears only
+        for the owner and for admins.
+      responses:
+        "200":
+          description: The caller's features.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [features]
+                properties:
+                  features:
+                    type: array
+                    items: { $ref: "#/components/schemas/Feature" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+  /api/resolve:
+    get:
+      tags: [Features]
+      operationId: resolvePath
+      summary: What applies to me on this path (called by embed.js on every page load).
+      description: |
+        `embed.js` asks this before showing the page body (`hoc-head.js` hides the body until the answer
+        arrives or `timeoutMs`, default 1500, passes). The answer lists the features to inject, override
+        or mount for the caller on this path, with the exact bundle to load. Features that are turned off
+        for the caller are omitted. An empty list means "show the original page". Must be fast: it is on
+        the critical path of every page view.
+
+        A feature is returned when `path` equals the feature's own `path`: the page it overrides, the
+        page a `slot` feature was built for, or the path of a `new-page` feature (which the site serves
+        from its catch-all route, for example `/ext/*`, as an empty page that loads `embed.js`).
+      parameters:
+        - name: path
+          in: query
+          required: true
+          description: The page path, starting with `/`, without query string.
+          schema: { type: string, examples: ["/orders"] }
+      responses:
+        "200":
+          description: Resolved features.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [path, features]
+                properties:
+                  path: { type: string }
+                  features:
+                    type: array
+                    items: { $ref: "#/components/schemas/ResolvedFeature" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+  /api/features/{id}/versions:
+    get:
+      tags: [Features]
+      operationId: listFeatureVersions
+      summary: Versions of a feature.
+      description: Newest first. Available to anyone who can see the feature.
+      parameters:
+        - $ref: "#/components/parameters/FeatureId"
+      responses:
+        "200":
+          description: Version history.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [featureId, currentVersion, versions]
+                properties:
+                  featureId: { type: string }
+                  currentVersion: { type: string }
+                  pinnedVersion: { type: [string, "null"] }
+                  versions:
+                    type: array
+                    items: { $ref: "#/components/schemas/FeatureVersion" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/features/{id}/pin:
+    post:
+      tags: [Features]
+      operationId: pinFeatureVersion
+      summary: Keep an older version for me only (or follow the current version again).
+      description: |
+        Any viewer, for themselves. The version must be one the feature has. `null` removes the pin so
+        the caller follows the feature's current version again.
+      parameters:
+        - $ref: "#/components/parameters/FeatureId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [version]
+              properties:
+                version:
+                  type: [string, "null"]
+                  description: A published version of this feature, or null to unpin.
+      responses:
+        "200":
+          description: The feature as the caller now sees it.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Feature" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404":
+          description: Unknown feature (`not_found`) or unknown version (`version_not_found`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/features/{id}/current:
+    post:
+      tags: [Features]
+      operationId: setFeatureCurrentVersion
+      summary: Roll back (or forward) for everyone who has not pinned.
+      description: Owner or admin only (`403 forbidden` otherwise).
+      parameters:
+        - $ref: "#/components/parameters/FeatureId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [version]
+              properties:
+                version: { type: string, minLength: 1 }
+      responses:
+        "200":
+          description: Updated feature.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Feature" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: Unknown feature (`not_found`) or unknown version (`version_not_found`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/features/{id}/share:
+    post:
+      tags: [Features]
+      operationId: shareFeature
+      summary: Add viewers.
+      description: |
+        Send either `userIds` (share with named users) or `everyone: true`. Allowed per the sharing
+        settings: `shareWithNamedUsers` / `shareWithEveryone` each say `owner`, `admins` or `nobody`;
+        a caller outside the allowed group, or any caller when the value is `nobody`, gets
+        `403 sharing_not_allowed`. Unknown user ids in `userIds` fail the whole call with
+        `400 invalid_request` (nothing is shared).
+      parameters:
+        - $ref: "#/components/parameters/FeatureId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  required: [userIds]
+                  additionalProperties: false
+                  properties:
+                    userIds:
+                      type: array
+                      minItems: 1
+                      items: { type: string }
+                - type: object
+                  required: [everyone]
+                  additionalProperties: false
+                  properties:
+                    everyone: { type: boolean, const: true }
+      responses:
+        "200":
+          description: Updated feature (includes `sharing`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Feature" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403":
+          description: Sharing not allowed for this caller (`sharing_not_allowed`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/features/{id}/share/{target}:
+    delete:
+      tags: [Features]
+      operationId: unshareFeature
+      summary: Remove viewers.
+      description: Owner or admin only. Removing a user also clears that user's pin.
+      parameters:
+        - $ref: "#/components/parameters/FeatureId"
+        - name: target
+          in: path
+          required: true
+          description: |
+            A user id (percent-encoded), or the literal `everyone`, which is reserved and always means the
+            everyone assignment.
+          schema: { type: string }
+      responses:
+        "200":
+          description: Updated feature.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Feature" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/features/{id}/enabled:
+    post:
+      tags: [Features]
+      operationId: setFeatureEnabled
+      summary: Turn a feature off or on for me.
+      description: Any viewer, for themselves only. Does not affect anyone else.
+      parameters:
+        - $ref: "#/components/parameters/FeatureId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled: { type: boolean }
+      responses:
+        "200":
+          description: The feature as the caller now sees it.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Feature" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/users:
+    get:
+      tags: [Features]
+      operationId: findUsers
+      summary: Find users to share with.
+      description: |
+        Backs the share picker with the site's `find_users(query)`. Returns at most `limit` matches and
+        never the caller. Not in the original design table; required because the browser cannot search
+        the site's users any other way. Callable by anyone who may share with named users (otherwise
+        `403 sharing_not_allowed`).
+      parameters:
+        - name: query
+          in: query
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 100 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+      responses:
+        "200":
+          description: Matches.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [users]
+                properties:
+                  users:
+                    type: array
+                    items:
+                      type: object
+                      required: [id]
+                      properties:
+                        id: { type: string }
+                        name: { type: [string, "null"] }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403":
+          description: Caller may not share with named users (`sharing_not_allowed`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/settings:
+    get:
+      tags: [Settings]
+      operationId: getSettings
+      summary: Read the site's feature settings.
+      description: Admins only (`403 forbidden` for everyone else).
+      responses:
+        "200":
+          description: Current settings (defaults if never saved).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Settings" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    put:
+      tags: [Settings]
+      operationId: putSettings
+      summary: Replace the site's feature settings.
+      description: |
+        Admins only. Whole-document replace. When `dataSources` changes the site also pushes it to the
+        platform with `PUT /host/v1/data-sources` (and stores any `secretValue` with
+        `PUT /host/v1/secrets`), so a failure there answers `502 platform_unavailable` and the settings
+        are not saved.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SettingsWrite" }
+      responses:
+        "200":
+          description: Saved settings.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Settings" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502": { $ref: "#/components/responses/PlatformUnavailable" }
+  /webhook:
+    post:
+      tags: [Webhook]
+      operationId: receiveWebhook
+      summary: Receive a platform event.
+      description: |
+        Called by the platform at the host's registered `webhookUrl` (which must point at this path).
+        Not called by browsers and not authenticated by the site session: the signature is the only
+        credential. Every delivery carries the headers below; always verify before trusting anything in
+        the body.
+
+        ## Signing
+
+        | Item | Value |
+        |---|---|
+        | Algorithm | HMAC-SHA256 |
+        | Key | The host's webhook secret, UTF-8 bytes (returned once by host registration / secret rotation) |
+        | String to sign | The raw request body, byte for byte (no timestamp prefix, no canonicalisation) |
+        | `X-HandOfClient-Signature` | `sha256=` followed by the lowercase hex digest |
+        | `X-HandOfClient-Event` | The event type: `build.status`, `build.version` or `activation.changed` |
+
+        ## Verification (do these in order)
+
+        1. Read the body as raw bytes before any JSON parsing or re-serialisation.
+        2. Compute `sha256=` + hex(HMAC-SHA256(secret, rawBody)).
+        3. Compare with the header using a constant-time comparison. Missing or different: answer
+           `401 invalid_signature` and do nothing else.
+        4. Parse the JSON. If the event has `sentAt`, reject with `400 stale_event` when it differs from
+           the receiver's clock by more than **300 seconds** (the tolerance, either direction).
+        5. If the event has `eventId`, ignore a repeat of one already processed (answer 200).
+        6. Answer `200` quickly. The platform treats any non-2xx or a timeout as a failure and retries
+           with backoff (the schedule is not part of the contract); every attempt carries a fresh
+           `sentAt`, the same `eventId`, and a fresh signature.
+
+        Test vector. Secret `whsec_example_secret`, body (one line, no trailing newline):
+        `{"type":"build.status","eventId":"evt_01","sentAt":"2026-10-09T18:00:05Z","buildId":"3f2a9c1e5b7d4a8e9c0d1f2a3b4c5d6e","requestRef":"req-123","status":"NeedsInfo","message":"Which date range?"}`
+        produces `X-HandOfClient-Signature: sha256=33ea1034e3f86ff21fcb3036c05139790b60080144bbea0115540e05ee72f052`.
+
+        ## What to do with events
+
+        * `build.status`: update the request whose id equals `requestRef` (`InProgress`, `NeedsInfo` with
+          the question in `message`, `Rejected` with the reason, or `Success`).
+        * `build.version`: record the new version of feature `featureRef` (create the feature if this is
+          its first), then assign it to the requester if the build was its first. `build.version` is
+          followed by `build.status` `Success`.
+        * `activation.changed`: legacy event for tenant activations; sites that only use the
+          customization loop may ignore it with a 200. Its body uses `event` instead of `type` and has no
+          `sentAt`/`eventId`.
+        * Unknown event types: answer 200 and ignore (new events are added without a version bump).
+      security:
+        - webhookSignature: []
+      parameters:
+        - name: X-HandOfClient-Event
+          in: header
+          required: true
+          schema:
+            type: string
+            enum: [build.status, build.version, activation.changed]
+        - name: X-HandOfClient-Signature
+          in: header
+          required: true
+          schema: { type: string, pattern: "^sha256=[0-9a-f]{64}$" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/BuildStatusEvent"
+                - $ref: "#/components/schemas/BuildVersionEvent"
+                - $ref: "#/components/schemas/ActivationChangedEvent"
+            examples:
+              needsInfo:
+                summary: build.status
+                value:
+                  type: build.status
+                  eventId: evt_01
+                  sentAt: "2026-10-09T18:00:05Z"
+                  buildId: 3f2a9c1e5b7d4a8e9c0d1f2a3b4c5d6e
+                  requestRef: req-123
+                  status: NeedsInfo
+                  message: Which date range?
+              published:
+                summary: build.version
+                value:
+                  type: build.version
+                  eventId: evt_02
+                  sentAt: "2026-10-09T18:10:00Z"
+                  buildId: 3f2a9c1e5b7d4a8e9c0d1f2a3b4c5d6e
+                  requestRef: req-123
+                  featureRef: req-123
+                  packageId: acme/f-req-123
+                  version: 1.2.0
+                  sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+                  entry: index.js
+                  kind: page-override
+                  path: /orders
+                  slotId: main
+                  mode: inject
+      responses:
+        "200":
+          description: Accepted (or a harmless duplicate / unknown event). Body is ignored.
+        "400":
+          description: Malformed JSON (`invalid_request`) or outside the time tolerance (`stale_event`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401":
+          description: Missing or wrong signature (`invalid_signature`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+components:
+  securitySchemes:
+    siteSession:
+      type: apiKey
+      in: cookie
+      name: site-defined
+      description: |
+        The site's own session cookie. The cookie name is whatever the site's authentication uses; the
+        browser sends it automatically (`credentials: same-origin`). Identity is resolved server-side by
+        `get_current_user`.
+    webhookSignature:
+      type: apiKey
+      in: header
+      name: X-HandOfClient-Signature
+      description: "`sha256=` + lowercase hex HMAC-SHA256 of the raw body with the host's webhook secret. See the `/webhook` operation."
+  parameters:
+    RequestId:
+      name: id
+      in: path
+      required: true
+      description: The site's request id (`SiteRequest.id`).
+      schema: { type: string }
+    FeatureId:
+      name: id
+      in: path
+      required: true
+      description: The site's feature id (`Feature.id`).
+      schema: { type: string }
+  responses:
+    Unauthenticated:
+      description: No signed-in user (`unauthenticated`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: Signed in but not allowed (`forbidden`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Not found, or not visible to the caller (`not_found`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    InvalidRequest:
+      description: Malformed or invalid input (`invalid_request`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    PayloadTooLarge:
+      description: Text over 20000 characters or snapshot over 2 MiB (`payload_too_large`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    PlatformUnavailable:
+      description: The call to the HandOfClient platform failed (`platform_unavailable`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    ErrorCode:
+      type: string
+      description: |
+        Stable error codes and the HTTP status each is sent with.
+
+        | Code | Status | Meaning |
+        |---|---|---|
+        | `unauthenticated` | 401 | No signed-in user |
+        | `invalid_signature` | 401 | Webhook signature missing or wrong |
+        | `forbidden` | 403 | Signed in, not allowed (admin-only, owner-only, or request visibility) |
+        | `sharing_not_allowed` | 403 | Sharing settings do not allow this caller |
+        | `not_found` | 404 | Unknown or not visible to the caller |
+        | `version_not_found` | 404 | The feature has no such version |
+        | `invalid_request` | 400 | Malformed or invalid input |
+        | `stale_event` | 400 | Webhook `sentAt` outside the 300 second tolerance |
+        | `payload_too_large` | 413 | Request text or snapshot over the limit |
+        | `not_awaiting_reply` | 409 | The request is not in `NeedsInfo` |
+        | `version_unavailable` | 409 | The version was withdrawn on the platform |
+        | `platform_unavailable` | 502 | A call to the platform failed or timed out |
+      enum:
+        - unauthenticated
+        - invalid_signature
+        - forbidden
+        - sharing_not_allowed
+        - not_found
+        - version_not_found
+        - invalid_request
+        - stale_event
+        - payload_too_large
+        - not_awaiting_reply
+        - version_unavailable
+        - platform_unavailable
+    Error:
+      type: object
+      required: [error, message]
+      properties:
+        error: { $ref: "#/components/schemas/ErrorCode" }
+        message: { type: string, description: "Human-readable, safe to show to the user." }
+    EmbedTokenResponse:
+      type: object
+      required: [token, expiresAt, userId]
+      description: The shape `embed.js` expects; also the contract of the original single-plugin token endpoint.
+      properties:
+        token: { type: string, description: "The platform's ES256 embed JWT, passed through unchanged." }
+        expiresAt: { type: string, format: date-time }
+        userId: { type: string, description: "The site's id for the user (the JWT `sub`)." }
+        displayName: { type: [string, "null"] }
+    RequestStatus:
+      type: string
+      enum: [InProgress, NeedsInfo, Rejected, Success]
+      description: |
+        `InProgress` received or being built. `NeedsInfo` the build needs an answer (see `message`).
+        `Rejected` will not be built (reason in `message`). `Success` built and live for the requester.
+    PageSnapshot:
+      type: object
+      description: |
+        Captured by `<hoc-request-feature>` on submit, stored by the site and sent on to the platform
+        with the build. At most 2 MiB serialised. HTML and CSS only.
+      required: [url, path, html]
+      properties:
+        url: { type: string, format: uri }
+        path: { type: string }
+        title: { type: string }
+        viewport:
+          type: object
+          required: [width, height]
+          properties:
+            width: { type: integer, minimum: 1 }
+            height: { type: integer, minimum: 1 }
+        capturedAt: { type: string, format: date-time }
+        html: { type: string, description: "Rendered DOM after redaction." }
+        css: { type: string, description: "Every stylesheet the page uses, inlined; unreadable cross-origin sheets are referenced by URL." }
+        redacted:
+          type: boolean
+          description: |
+            True when the default redaction was applied (text replaced with same-length placeholders;
+            form values and `value`/`placeholder`/`title` attributes dropped; query strings stripped
+            from links and images; `data-hoc-keep` keeps an element's text, `data-hoc-skip` leaves it out).
+    CreateRequestBody:
+      type: object
+      required: [text]
+      properties:
+        text: { type: string, minLength: 1, maxLength: 20000 }
+        snapshot: { $ref: "#/components/schemas/PageSnapshot" }
+        featureId:
+          type: string
+          description: Existing feature to change again; produces a new version of it.
+    SiteRequest:
+      type: object
+      required: [id, text, status, userId, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          description: |
+            The site's own id. Sent to the platform as `requestRef`, so it must match
+            `^[A-Za-z0-9][A-Za-z0-9._:-]*$` and be at most 128 characters.
+        text: { type: string }
+        status: { $ref: "#/components/schemas/RequestStatus" }
+        message:
+          type: [string, "null"]
+          description: The `NeedsInfo` question or the `Rejected` reason; null otherwise.
+        featureId:
+          type: [string, "null"]
+          description: The feature this request built or changed. Null until the first version is published.
+        userId: { type: string, description: "The requester." }
+        userName: { type: [string, "null"] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    FeatureKind:
+      type: string
+      enum: [slot, page-override, new-page]
+      description: |
+        `slot` is a panel in a slot the site already declares. `page-override` replaces an existing page
+        at a path (the URL does not change). `new-page` adds a page at a new path. In the platform's
+        manifest these are `SLOT_KIND_PANEL`, `SLOT_KIND_OVERRIDE` and `SLOT_KIND_PAGE`.
+    RenderingMode:
+      type: string
+      enum: [inject, iframe]
+      description: |
+        `inject` runs the plugin's JavaScript directly in the page (the site's Content-Security-Policy
+        must allow scripts from the platform origin). `iframe` runs it in a sandboxed frame; data only
+        through the platform's egress proxy.
+    Feature:
+      type: object
+      required: [id, title, kind, mode, packageId, slotId, currentVersion, enabled, ownerUserId]
+      properties:
+        id: { type: string }
+        title: { type: string, description: "Short human name, derived from the first request." }
+        kind: { $ref: "#/components/schemas/FeatureKind" }
+        path:
+          type: [string, "null"]
+          description: Page path for `page-override` / `new-page`; the page it was built for for `slot`.
+        slotId: { type: string, description: "The manifest slot id the token is minted for." }
+        mode: { $ref: "#/components/schemas/RenderingMode" }
+        packageId: { type: string, description: "Platform package id, `{hostId}/f-{featureRef}` unless the site chose another." }
+        currentVersion: { type: string, description: "The version everyone who has not pinned sees." }
+        pinnedVersion:
+          type: [string, "null"]
+          description: The caller's own pinned version, or null when following the current version.
+        enabled: { type: boolean, description: "Whether the feature is on for the caller." }
+        ownerUserId: { type: string }
+        requestId: { type: [string, "null"], description: "The request that created the feature." }
+        sharing:
+          description: Present only for the owner and for admins.
+          type: object
+          required: [everyone, userIds]
+          properties:
+            everyone: { type: boolean }
+            userIds:
+              type: array
+              items: { type: string }
+    ResolvedFeature:
+      type: object
+      description: Everything `embed.js` needs to load one feature for the caller on a path.
+      required: [featureId, kind, mode, slotId, packageId, version, sha256, entry]
+      properties:
+        featureId: { type: string }
+        kind: { $ref: "#/components/schemas/FeatureKind" }
+        mode: { $ref: "#/components/schemas/RenderingMode" }
+        slotId: { type: string }
+        path: { type: [string, "null"] }
+        packageId: { type: string }
+        version: { type: string, description: "The caller's pinned version if any, else the current version." }
+        sha256:
+          type: string
+          description: |
+            Published sha256 of the entry file, used as the `integrity` hash on the injected
+            `<script type="module">` so only that exact build can run.
+        entry: { type: string, description: "Entry file within the bundle, for example `index.js`." }
+    FeatureVersion:
+      type: object
+      required: [version, publishedAt, sha256]
+      properties:
+        version: { type: string }
+        publishedAt: { type: string, format: date-time }
+        requestId: { type: [string, "null"], description: "The request that produced this version." }
+        sha256: { type: string }
+    Settings:
+      type: object
+      required: [renderingMode, shareWithNamedUsers, shareWithEveryone, viewAllRequests, dataSources]
+      properties:
+        renderingMode:
+          allOf: [{ $ref: "#/components/schemas/RenderingMode" }]
+          default: inject
+          description: Mode used for new features (sent to the platform as `mode` at submit time).
+        shareWithNamedUsers:
+          allOf: [{ $ref: "#/components/schemas/SharePolicy" }]
+          default: owner
+        shareWithEveryone:
+          allOf: [{ $ref: "#/components/schemas/SharePolicy" }]
+          default: admins
+        viewAllRequests:
+          type: string
+          enum: [admins, everyone]
+          default: admins
+        dataSources:
+          type: array
+          items: { $ref: "#/components/schemas/DataSource" }
+    SettingsWrite:
+      allOf:
+        - $ref: "#/components/schemas/Settings"
+      description: Same as `Settings`; `dataSources[].auth.secretValue` is accepted here and never returned.
+    SharePolicy:
+      type: string
+      enum: [owner, admins, nobody]
+    DataSource:
+      type: object
+      description: |
+        Describes one API the build may use (see `PUT /host/v1/data-sources` in `platform-host-v1.yaml`).
+        The credential lives in the platform vault; this object only names it.
+      required: [name, baseUrl]
+      properties:
+        name: { type: string }
+        baseUrl: { type: string, format: uri }
+        openapi:
+          type: object
+          description: An OpenAPI document (or the relevant subset) describing the API.
+          additionalProperties: true
+        auth:
+          type: object
+          required: [type, secret]
+          properties:
+            type: { type: string, enum: [bearer] }
+            secret: { type: string, description: "Vault secret name (`[a-z0-9_-]{1,64}`)." }
+            secretValue:
+              type: string
+              writeOnly: true
+              description: Set or replace the vault value; stored on the platform, never returned.
+    BuildStatusEvent:
+      type: object
+      required: [type, eventId, sentAt, buildId, requestRef, status]
+      properties:
+        type: { type: string, const: build.status }
+        eventId: { type: string, description: "Stable across retries; use to deduplicate." }
+        sentAt: { type: string, format: date-time, description: "Per delivery attempt; used for the 300 second tolerance." }
+        buildId: { type: string }
+        requestRef: { type: string, description: "The site's own request id, echoed back." }
+        status: { $ref: "#/components/schemas/RequestStatus" }
+        message: { type: [string, "null"], description: "The `NeedsInfo` question or the `Rejected` reason." }
+    BuildVersionEvent:
+      type: object
+      required: [type, eventId, sentAt, buildId, requestRef, featureRef, packageId, version, sha256, entry, kind, slotId, mode]
+      properties:
+        type: { type: string, const: build.version }
+        eventId: { type: string }
+        sentAt: { type: string, format: date-time }
+        buildId: { type: string }
+        requestRef: { type: string }
+        featureRef: { type: string, description: "The site's own feature id (the request id when the build created the feature)." }
+        packageId: { type: string }
+        version: { type: string, description: "Semver of the published version." }
+        sha256: { type: string, description: "sha256 of the entry file." }
+        entry: { type: string }
+        kind: { $ref: "#/components/schemas/FeatureKind" }
+        path: { type: [string, "null"] }
+        slotId: { type: string, description: "Manifest slot id the site must pass when minting tokens." }
+        mode: { $ref: "#/components/schemas/RenderingMode" }
+    ActivationChangedEvent:
+      type: object
+      description: Legacy event. Uses `event`, not `type`, and carries no `sentAt` / `eventId`.
+      required: [event, reason, hostId, tenantId, packageId, slotId, version, enabled, pinned, activatedAt]
+      properties:
+        event: { type: string, const: activation.changed }
+        reason: { type: string }
+        hostId: { type: string }
+        tenantId: { type: string }
+        packageId: { type: string }
+        slotId: { type: string }
+        version: { type: string }
+        enabled: { type: boolean }
+        pinned: { type: boolean }
+        activatedAt: { type: string, format: date-time }
+        activatedBy: { type: [string, "null"] }

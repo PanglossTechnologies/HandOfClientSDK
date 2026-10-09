@@ -107,6 +107,11 @@ Start from [`samples/plugins/hello-world`](samples/plugins/hello-world); see
 | `samples/` | Host and plugin examples |
 | `docs/` | Protocol spec and guides |
 
+`openapi/` holds the REST contracts for non-.NET implementers: `site-hoc-api.yaml` (the endpoints your site
+serves: `hoc/token`, `hoc/api/*`, `hoc/webhook`, including webhook signing) and `platform-host-v1.yaml`
+(the platform's `/host/v1` API, embed-token JWT claims, and the `{{secret:name}}` / `{{hoc:token}}` proxy
+substitutions).
+
 **This repo is the single source of truth** for everything in that table (`proto/`, `gen/`, `clients/`,
 `sdk/`, `host-adapters/`, `samples/`, `tools/`, `docs/`, and `buf.gen.yaml`). The platform maintainers
 consume it by mirroring these folders from here with a sync script; changes always land in this repo
