@@ -107,6 +107,11 @@ Start from [`samples/plugins/hello-world`](samples/plugins/hello-world); see
 | `samples/` | Host and plugin examples |
 | `docs/` | Protocol spec and guides |
 
+**This repo is the single source of truth** for everything in that table (`proto/`, `gen/`, `clients/`,
+`sdk/`, `host-adapters/`, `samples/`, `tools/`, `docs/`, and `buf.gen.yaml`). The platform maintainers
+consume it by mirroring these folders from here with a sync script; changes always land in this repo
+first and are never made in a copy.
+
 ## Security model
 
 Every postMessage is origin- and source-checked on both sides (never `"*"`). Embed tokens are ES256 JWTs

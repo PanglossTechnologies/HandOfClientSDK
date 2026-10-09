@@ -356,6 +356,25 @@ message RotateApiKeyResponse {
   string api_key = 2;
 }
 
+// Deletes the host and every row scoped to it (packages, versions, activations, tenant storage,
+// egress allowlist, audit, usage, secrets, customization requests). confirm_host_id must equal
+// host_id so a wrong click cannot do this.
+message DeleteHostRequest {
+  string host_id = 1;
+  string confirm_host_id = 2;
+}
+message DeleteHostResponse {}
+
+// Replaces Host.webhook_secret. The host must already have a webhook_url (RegisterHost is still
+// the only way to set one). Returned once; the previous secret stops verifying immediately.
+message RotateWebhookSecretRequest {
+  string host_id = 1;
+}
+message RotateWebhookSecretResponse {
+  Host host = 1;
+  string webhook_secret = 2;
+}
+
 // --- E1 additions: read-side RPCs the admin UI needs and B1/B4/B6 never added (same shape of gap
 // as B6's own SetTenantFeatures amendment - a write RPC with no matching read). ---
 
@@ -406,6 +425,8 @@ service PackageRegistry {
   rpc RegisterHost(RegisterHostRequest) returns (RegisterHostResponse);
   rpc AddHostOrigins(AddHostOriginsRequest) returns (AddHostOriginsResponse);
   rpc RotateApiKey(RotateApiKeyRequest) returns (RotateApiKeyResponse);
+  rpc DeleteHost(DeleteHostRequest) returns (DeleteHostResponse);
+  rpc RotateWebhookSecret(RotateWebhookSecretRequest) returns (RotateWebhookSecretResponse);
   rpc SetTenantEgressAllowlist(SetTenantEgressAllowlistRequest) returns (SetTenantEgressAllowlistResponse);
   rpc GetTenantEgressAllowlist(GetTenantEgressAllowlistRequest) returns (GetTenantEgressAllowlistResponse);
   rpc ListHosts(ListHostsRequest) returns (ListHostsResponse);

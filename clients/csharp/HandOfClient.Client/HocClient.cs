@@ -20,6 +20,10 @@ public sealed class HocClientOptions
     /// query, entitlement admin - calls made from a host's own backend, never from inside a plugin
     /// iframe). Null for a plugin-side client that only ever presents an embed token.</summary>
     public string? ApiKey { get; init; }
+
+    /// <summary>When <see cref="ApiKey"/> is the platform super-admin key, host-scoped RPCs run as this
+    /// host (sent as x-hoc-host). Ignored by the platform unless the key is the super-admin key.</summary>
+    public string? OnBehalfOfHost { get; init; }
 }
 
 /// <summary>
@@ -57,9 +61,12 @@ public sealed class HocClient : IDisposable
         }
         if (options.ApiKey is { } apiKey)
         {
+            var onBehalf = options.OnBehalfOfHost;
             var keyCredentials = CallCredentials.FromInterceptor((_, metadata) =>
             {
                 metadata.Add("x-api-key", apiKey);
+                if (!string.IsNullOrEmpty(onBehalf))
+                    metadata.Add("x-hoc-host", onBehalf);
                 return Task.CompletedTask;
             });
             callCredentials = callCredentials is null ? keyCredentials : CallCredentials.Compose(callCredentials, keyCredentials);

@@ -2115,6 +2115,167 @@ export class RotateApiKeyResponse extends Message<RotateApiKeyResponse> {
 }
 
 /**
+ * Deletes the host and every row scoped to it (packages, versions, activations, tenant storage,
+ * egress allowlist, audit, usage, secrets, customization requests). confirm_host_id must equal
+ * host_id so a wrong click cannot do this.
+ *
+ * @generated from message handofclient.v1.DeleteHostRequest
+ */
+export class DeleteHostRequest extends Message<DeleteHostRequest> {
+  /**
+   * @generated from field: string host_id = 1;
+   */
+  hostId = "";
+
+  /**
+   * @generated from field: string confirm_host_id = 2;
+   */
+  confirmHostId = "";
+
+  constructor(data?: PartialMessage<DeleteHostRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "handofclient.v1.DeleteHostRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "host_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "confirm_host_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DeleteHostRequest {
+    return new DeleteHostRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): DeleteHostRequest {
+    return new DeleteHostRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): DeleteHostRequest {
+    return new DeleteHostRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: DeleteHostRequest | PlainMessage<DeleteHostRequest> | undefined, b: DeleteHostRequest | PlainMessage<DeleteHostRequest> | undefined): boolean {
+    return proto3.util.equals(DeleteHostRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message handofclient.v1.DeleteHostResponse
+ */
+export class DeleteHostResponse extends Message<DeleteHostResponse> {
+  constructor(data?: PartialMessage<DeleteHostResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "handofclient.v1.DeleteHostResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DeleteHostResponse {
+    return new DeleteHostResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): DeleteHostResponse {
+    return new DeleteHostResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): DeleteHostResponse {
+    return new DeleteHostResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: DeleteHostResponse | PlainMessage<DeleteHostResponse> | undefined, b: DeleteHostResponse | PlainMessage<DeleteHostResponse> | undefined): boolean {
+    return proto3.util.equals(DeleteHostResponse, a, b);
+  }
+}
+
+/**
+ * Replaces Host.webhook_secret. The host must already have a webhook_url (RegisterHost is still
+ * the only way to set one). Returned once; the previous secret stops verifying immediately.
+ *
+ * @generated from message handofclient.v1.RotateWebhookSecretRequest
+ */
+export class RotateWebhookSecretRequest extends Message<RotateWebhookSecretRequest> {
+  /**
+   * @generated from field: string host_id = 1;
+   */
+  hostId = "";
+
+  constructor(data?: PartialMessage<RotateWebhookSecretRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "handofclient.v1.RotateWebhookSecretRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "host_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RotateWebhookSecretRequest {
+    return new RotateWebhookSecretRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RotateWebhookSecretRequest {
+    return new RotateWebhookSecretRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RotateWebhookSecretRequest {
+    return new RotateWebhookSecretRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: RotateWebhookSecretRequest | PlainMessage<RotateWebhookSecretRequest> | undefined, b: RotateWebhookSecretRequest | PlainMessage<RotateWebhookSecretRequest> | undefined): boolean {
+    return proto3.util.equals(RotateWebhookSecretRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message handofclient.v1.RotateWebhookSecretResponse
+ */
+export class RotateWebhookSecretResponse extends Message<RotateWebhookSecretResponse> {
+  /**
+   * @generated from field: handofclient.v1.Host host = 1;
+   */
+  host?: Host;
+
+  /**
+   * @generated from field: string webhook_secret = 2;
+   */
+  webhookSecret = "";
+
+  constructor(data?: PartialMessage<RotateWebhookSecretResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "handofclient.v1.RotateWebhookSecretResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "host", kind: "message", T: Host },
+    { no: 2, name: "webhook_secret", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RotateWebhookSecretResponse {
+    return new RotateWebhookSecretResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RotateWebhookSecretResponse {
+    return new RotateWebhookSecretResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RotateWebhookSecretResponse {
+    return new RotateWebhookSecretResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: RotateWebhookSecretResponse | PlainMessage<RotateWebhookSecretResponse> | undefined, b: RotateWebhookSecretResponse | PlainMessage<RotateWebhookSecretResponse> | undefined): boolean {
+    return proto3.util.equals(RotateWebhookSecretResponse, a, b);
+  }
+}
+
+/**
  * @generated from message handofclient.v1.GetTenantEgressAllowlistRequest
  */
 export class GetTenantEgressAllowlistRequest extends Message<GetTenantEgressAllowlistRequest> {

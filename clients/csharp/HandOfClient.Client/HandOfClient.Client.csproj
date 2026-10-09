@@ -7,9 +7,9 @@
     <PackageId>HandOfClient.Client</PackageId>
     <Description>HandOfClient Platform API client - generated handofclient.v1 gRPC client plus an auth-interceptor/retry wrapper.</Description>
     <RootNamespace>HandOfClient.Client</RootNamespace>
-    <!-- PackageVersion is set at pack time by .github/workflows/release.yml (-p:PackageVersion=<tag>),
+    <!-- PackageVersion is supplied at pack time (-p:PackageVersion=<tag>),
          not hardcoded here - the git tag is the one source of truth for "what version is this",
-         same convention as the npm packages (see scripts/set-npm-release-version.mjs). -->
+         same convention as the npm packages. -->
     <PackageProjectUrl>https://github.com/PanglossTechnologies/HandOfClientSDK</PackageProjectUrl>
     <RepositoryUrl>https://github.com/PanglossTechnologies/HandOfClientSDK.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>

@@ -3,7 +3,7 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import { ActivateRequest, ActivateResponse, AddHostOriginsRequest, AddHostOriginsResponse, GetActiveVersionRequest, GetActiveVersionResponse, GetTenantEgressAllowlistRequest, GetTenantEgressAllowlistResponse, ListActivationsRequest, ListActivationsResponse, ListHostsRequest, ListHostsResponse, ListPackagesRequest, ListPackagesResponse, ListVersionsRequest, ListVersionsResponse, PinRequest, PinResponse, PublishVersionRequest, PublishVersionResponse, RegisterHostRequest, RegisterHostResponse, RollbackRequest, RollbackResponse, RotateApiKeyRequest, RotateApiKeyResponse, SetSlotEnabledRequest, SetSlotEnabledResponse, SetTenantEgressAllowlistRequest, SetTenantEgressAllowlistResponse, WhoAmIRequest, WhoAmIResponse } from "./package_registry_pb.js";
+import { ActivateRequest, ActivateResponse, AddHostOriginsRequest, AddHostOriginsResponse, DeleteHostRequest, DeleteHostResponse, GetActiveVersionRequest, GetActiveVersionResponse, GetTenantEgressAllowlistRequest, GetTenantEgressAllowlistResponse, ListActivationsRequest, ListActivationsResponse, ListHostsRequest, ListHostsResponse, ListPackagesRequest, ListPackagesResponse, ListVersionsRequest, ListVersionsResponse, PinRequest, PinResponse, PublishVersionRequest, PublishVersionResponse, RegisterHostRequest, RegisterHostResponse, RollbackRequest, RollbackResponse, RotateApiKeyRequest, RotateApiKeyResponse, RotateWebhookSecretRequest, RotateWebhookSecretResponse, SetSlotEnabledRequest, SetSlotEnabledResponse, SetTenantEgressAllowlistRequest, SetTenantEgressAllowlistResponse, WhoAmIRequest, WhoAmIResponse } from "./package_registry_pb.js";
 import { MethodKind } from "@bufbuild/protobuf";
 
 /**
@@ -109,6 +109,24 @@ export const PackageRegistry = {
       name: "RotateApiKey",
       I: RotateApiKeyRequest,
       O: RotateApiKeyResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * @generated from rpc handofclient.v1.PackageRegistry.DeleteHost
+     */
+    deleteHost: {
+      name: "DeleteHost",
+      I: DeleteHostRequest,
+      O: DeleteHostResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * @generated from rpc handofclient.v1.PackageRegistry.RotateWebhookSecret
+     */
+    rotateWebhookSecret: {
+      name: "RotateWebhookSecret",
+      I: RotateWebhookSecretRequest,
+      O: RotateWebhookSecretResponse,
       kind: MethodKind.Unary,
     },
     /**
