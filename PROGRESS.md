@@ -138,3 +138,25 @@ because the signature is over the raw bytes; the default logger only prints warn
 
 Known gaps: MySQL has only been exercised by fake-pool unit tests locally (the CI MySQL job is its first live run); npm publishing
 needs the `@handofclient` org and a trusted-publisher entry on npmjs.com (Needs Human); `samples/hosts/` has no Node example yet.
+
+## 2026-10-09 - CL-19 PHP host module
+
+New `host-modules/php/` (Composer `handofclient/host`, PHP 8.1+, requires only `psr/log`, `ext-json`, `ext-mbstring`): `HostModule` is a port of
+the Python/Node rules (same routes, validation, visibility/sharing/resolve precedence, webhook handling) over a `Storage`/`StorageTx`
+interface. `SqlStorage` runs on PDO (SQLite via BEGIN IMMEDIATE, PostgreSQL, MySQL/MariaDB) with the same `hoc_*` schema as the other modules and an
+advisory lock around migrations; platform client uses curl or falls back to PHP streams. Adapters: `PlainPhp::serve($module, '/hoc')` and
+`Laravel::routes($module)` (web middleware group, webhook always CSRF-exempt, browser routes follow the app's CSRF policy unless `csrfExempt: true`).
+
+Proof: the CL-16 suite passes 97/97 under plain PHP (SQLite, PostgreSQL, MariaDB, and with the stream transport) and under Laravel 12 and 13 (SQLite, PostgreSQL,
+MariaDB; Laravel's own PDO), plus a `laravel-csrf` run (browser POST 419, GET and signed webhook fine); 110 PHPUnit tests pass on PHP 8.3 (PHPUnit 12)
+and PHP 8.1 (PHPUnit 10). CI (`.github/workflows/php-host-module.yml`) adds PHP 8.1-8.4, Laravel 11-13, real PostgreSQL/MySQL services, and a tag-triggered
+`host-php-vX.Y.Z` job that splits the subtree to the mirror repo Packagist reads.
+
+Decisions: PHP has no background threads, so unstarted builds are retried by `runDeferred()` after a later response (at most every 15 s across processes,
+throttled through a `build_retry_at` row in `hoc_counters`) and by `retryUnstartedBuilds()` from cron; pdo_sqlite's `inTransaction()` ignores transactions
+started by statement, so SQLite transactions are driven by plain BEGIN/COMMIT/ROLLBACK and a caller-owned transaction is detected from the BEGIN error;
+empty `[]` vs `{}` is lost by `json_decode(..., true)`, so snapshot and dataSources are validated on an object-decoded copy.
+
+Known gaps: Laravel 11 and PHP 8.2/8.4 are first exercised by CI (local runs: PHP 8.1 and 8.3, Laravel 12 and 13); MySQL was verified on MariaDB 11.4 only;
+Packagist publishing needs the mirror repo `PanglossTechnologies/handofclient-php`, a write deploy key stored as secret `PHP_SPLIT_DEPLOY_KEY` in the `packagist`
+environment, and the package submitted on packagist.org (Needs Human); `samples/hosts/` has no PHP example yet.

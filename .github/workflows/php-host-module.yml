@@ -1,0 +1,144 @@
+name: php-host-module
+
+# Tests the PHP host module (host-modules/php) and publishes it to Packagist as handofclient/host.
+#   * every push / PR touching it: PHPUnit on PHP 8.1-8.4, the CL-16 conformance suite under plain PHP and under
+#     Laravel 11, 12 and 13 (SQLite), then the same suite against real PostgreSQL and MySQL servers
+#   * tag host-php-vX.Y.Z: Packagist needs composer.json at the root of a repository, so the host-modules/php subtree is
+#     split off and pushed (with tag vX.Y.Z) to the read-only mirror PanglossTechnologies/handofclient-php, which is the
+#     repository registered on packagist.org (it then picks the tag up through its GitHub hook).
+#     One-time setup: create that empty public repository; add a write-enabled deploy key to it; store the private
+#     key as the secret PHP_SPLIT_DEPLOY_KEY of the GitHub environment "packagist"; submit
+#     https://github.com/PanglossTechnologies/handofclient-php on packagist.org (name: handofclient/host).
+on:
+  push:
+    branches: [main]
+    tags: ["host-php-v*.*.*"]
+    paths:
+      - "host-modules/php/**"
+      - "host-modules/conformance/**"
+      - "openapi/**"
+      - ".github/workflows/php-host-module.yml"
+  pull_request:
+    paths:
+      - "host-modules/php/**"
+      - "host-modules/conformance/**"
+      - "openapi/**"
+      - ".github/workflows/php-host-module.yml"
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: host-modules/php
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ["8.1", "8.2", "8.3", "8.4"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mbstring, curl, pdo_sqlite
+          coverage: none
+      - run: composer validate --strict
+      - run: composer install --no-interaction --no-progress
+      - run: vendor/bin/phpunit
+
+  conformance:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: plain, php: "8.1", laravel: "", frameworks: "plain" }
+          - { name: plain, php: "8.4", laravel: "", frameworks: "plain" }
+          - { name: laravel 11, php: "8.2", laravel: "11", frameworks: "laravel laravel-csrf" }
+          - { name: laravel 12, php: "8.3", laravel: "12", frameworks: "laravel laravel-csrf" }
+          - { name: laravel 13, php: "8.4", laravel: "13", frameworks: "laravel laravel-csrf" }
+    name: conformance (${{ matrix.name }}, php ${{ matrix.php }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mbstring, curl, pdo_sqlite
+          coverage: none
+      - run: composer install --no-interaction --no-progress --no-dev
+      - name: Laravel ${{ matrix.laravel }} app around this checkout
+        if: matrix.laravel != ''
+        run: node conformance/setup-laravel.mjs --laravel ${{ matrix.laravel }}
+      - run: node conformance/run-conformance.mjs ${{ matrix.frameworks }} --reporter spec
+      - name: Platform calls over PHP streams instead of curl
+        if: matrix.name == 'plain'
+        run: node conformance/run-conformance.mjs plain --transport stream --reporter dot
+
+  conformance-db:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        framework: [plain, laravel]
+        db: [postgres, mysql]
+    services:
+      postgres:
+        image: postgres:16
+        env: { POSTGRES_PASSWORD: hoc, POSTGRES_DB: hoc }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+      mysql:
+        image: mysql:8
+        env: { MYSQL_ROOT_PASSWORD: hoc, MYSQL_DATABASE: hoc }
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -phoc" --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: mbstring, curl, pdo_sqlite, pdo_pgsql, pdo_mysql
+          coverage: none
+      - run: composer install --no-interaction --no-progress --no-dev
+      - name: Laravel app around this checkout
+        if: matrix.framework == 'laravel'
+        run: node conformance/setup-laravel.mjs
+      - name: Conformance suite on ${{ matrix.db }}
+        env:
+          HOC_CONFORMANCE_DATABASE_URL: ${{ matrix.db == 'postgres' && 'postgresql://postgres:hoc@127.0.0.1:5432/hoc' || 'mysql://root:hoc@127.0.0.1:3306/hoc' }}
+        run: node conformance/run-conformance.mjs ${{ matrix.framework }} --db env --reporter spec
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/host-php-v')
+    needs: [test, conformance, conformance-db]
+    runs-on: ubuntu-latest
+    environment: packagist
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.PHP_SPLIT_DEPLOY_KEY }}
+      - name: Split host-modules/php and push it, tagged, to the Packagist mirror
+        run: |
+          version="${GITHUB_REF_NAME#host-php-v}"
+          git subtree split --prefix=host-modules/php -b php-split
+          mirror=git@github.com:PanglossTechnologies/handofclient-php.git
+          git push "$mirror" php-split:refs/heads/main
+          git push "$mirror" "php-split:refs/tags/v${version}"

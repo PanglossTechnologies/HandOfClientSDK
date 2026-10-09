@@ -58,7 +58,8 @@ or allow the cookie-only test client).
 
 `selftest/reference-host.mjs` is a complete working example of the profile, and so are the three apps in
 [`../python/conformance`](../python/conformance) (Flask, Django, FastAPI over `handofclient`) and
-[`../node/conformance`](../node/conformance) (Express, Fastify, node:http over `@handofclient/host`).
+[`../node/conformance`](../node/conformance) (Express, Fastify, node:http over `@handofclient/host`) and
+[`../php/conformance`](../php/conformance) (plain PHP and Laravel over `handofclient/host`).
 
 ## What it covers
 

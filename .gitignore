@@ -54,3 +54,10 @@ host-adapters/wordpress/handofclient/assets/js/embed.global.js
 # database. Entirely reproducible from host-adapters/wordpress/devharness/setup.mjs, so none of it is
 # source. Also contains a live host API key in wp-config/options - never commit it.
 .wp-local/
+
+# PHP host module (host-modules/php): composer deps, PHPUnit cache, and the local PHP/composer toolchain + Laravel conformance app (dev box only)
+vendor/
+.phpunit.cache/
+composer.lock
+.php-local/
+.laravel-conformance/
