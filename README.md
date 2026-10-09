@@ -107,6 +107,7 @@ Start from [`samples/plugins/hello-world`](samples/plugins/hello-world); see
 | `sdk/embed-js` | Host-side `embed.js` and the plugin-side SDK |
 | `tools/publisher-cli` | Bundle and publish plugins |
 | `host-adapters/wordpress` | Installable WordPress host plugin |
+| `host-modules/conformance` | Language-neutral conformance suite for host modules, and a fake platform for local development |
 | `samples/` | Host and plugin examples |
 | `docs/` | Protocol spec and guides |
 
@@ -116,7 +117,7 @@ serves: `hoc/token`, `hoc/api/*`, `hoc/webhook`, including webhook signing) and 
 substitutions).
 
 **This repo is the single source of truth** for everything in that table (`proto/`, `gen/`, `clients/`,
-`sdk/`, `host-adapters/`, `samples/`, `tools/`, `docs/`, and `buf.gen.yaml`). The platform maintainers
+`sdk/`, `host-adapters/`, `host-modules/`, `samples/`, `tools/`, `docs/`, and `buf.gen.yaml`). The platform maintainers
 consume it by mirroring these folders from here with a sync script; changes always land in this repo
 first and are never made in a copy.
 

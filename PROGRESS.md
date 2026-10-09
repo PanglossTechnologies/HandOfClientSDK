@@ -79,3 +79,21 @@ into `hoc.root` and scopes its theme variables to it, and the real built sample 
 (harness serves a minimal grpc-web TenantStorage). Inject-mode differences documented in `docs/plugin-author-tutorial.md`.
 
 Known gaps: an exception from the callback in inject mode is only thrown, not reported back to embed.js (no error channel in `InjectContext`).
+
+## 2026-10-09 - CL-16 host module conformance suite
+
+New `host-modules/conformance/`: zero-dependency Node (node:test) HTTP suite (7 files, 97 tests) any host module can be run
+against with `node host-modules/conformance/run.mjs --base-url <module>/hoc`. It covers every `hoc/api/*` call, token minting
+(never for an invisible feature, always for the session user, pin/current version), resolve precedence, sharing policies,
+webhook signature/replay/stale handling and settings/data sources. The fake platform (`fake-platform/`, also usable standalone
+with `--auto-build` for local development) records builds/embed-token calls, validates builds like the real API, mints verifiable
+ES256 tokens and sends signed webhooks; a control API under `/_fake/*` drives it. A conformance profile (cookie `hoc_user`
+roster, fixed key/secret/tenant, documented in the README) is how a module under test is configured.
+
+Proof: `npm run test:conformance` runs the suite against an in-memory reference host (`selftest/reference-host.mjs`, written
+from the OpenAPI file); `selftest/mutants.mjs` breaks the reference host seven ways and requires the suite to fail each.
+
+Decisions: suite never resets the module's DB (unique ids/paths per test); where the contract leaves a status open (non-requester
+reply 403/404, token for a feature the user turned off) the suite accepts both. Known gaps: legacy token call without
+`featureId`, CSRF, retry timing after a platform outage; CI wiring is CL-27; the embed-js fake-site could be replaced by this
+fake later.

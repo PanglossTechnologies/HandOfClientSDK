@@ -15,6 +15,7 @@
   ],
   "scripts": {
     "build": "npm run build -w @handofclient/gen-ts -w @handofclient/api -w @handofclient/embed-js -w @handofclient/publisher-cli -w @handofclient/sample-hello-world-plugin -w @handofclient/vendor-spend-dashboard-plugin",
+    "test:conformance": "node host-modules/conformance/selftest/selftest.mjs",
     "proto:lint": "buf lint proto",
     "proto:generate": "buf generate"
   },
