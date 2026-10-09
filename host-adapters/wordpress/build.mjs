@@ -6,8 +6,12 @@
 //     from its own directory, never from the platform at runtime - fetching executable code from a
 //     remote server violates the wordpress.org plugin guidelines outright, and it would also mean a
 //     platform outage breaks the page rather than just the panel.
-//  2. Stage exactly what ships into dist/staging/handofclient (tests and build scratch stay behind).
-//  3. Zip the staged directory, ready to upload through Plugins > Add New > Upload.
+//     Same for hoc-head.min.js, the few-line snippet inlined in <head> of signed-in pages.
+//  2. Bundle the PHP host module (host-modules/php/src) and its only runtime dependency, psr/log, into
+//     the staged plugin as lib/host and lib/psr-log, so the zip needs no Composer. In a source checkout
+//     the plugin finds them in host-modules/ instead (see HOC_Site_Loader).
+//  3. Stage exactly what ships into dist/staging/handofclient (tests and build scratch stay behind).
+//  4. Zip the staged directory, ready to upload through Plugins > Add New > Upload.
 //
 // The archiver is bsdtar, not PowerShell's Compress-Archive: Compress-Archive on Windows PowerShell
 // 5.1 writes entry names with backslash separators, which the ZIP spec forbids (4.4.17.1 requires
@@ -35,6 +39,11 @@ const embedTarget = path.join(pluginDir, "assets/js/embed.global.js");
 // would put an executable PHP file with no ABSPATH guard of its own into wp-content/plugins.
 const EXCLUDE_FROM_DIST = new Set(["tests"]);
 
+const headSource = path.join(repoRoot, "sdk/embed-js/dist/hoc-head.min.js");
+const headTarget = path.join(pluginDir, "assets/js/hoc-head.min.js");
+const hostSource = path.join(repoRoot, "host-modules/php/src");
+const psrSource = path.join(repoRoot, "host-modules/php/vendor/psr/log/src");
+
 try {
   await access(embedSource);
 } catch {
@@ -48,6 +57,8 @@ try {
 await mkdir(path.dirname(embedTarget), { recursive: true });
 await cp(embedSource, embedTarget);
 console.log(`Copied embed.global.js -> ${path.relative(repoRoot, embedTarget)}`);
+await cp(headSource, headTarget);
+console.log(`Copied hoc-head.min.js -> ${path.relative(repoRoot, headTarget)}`);
 
 // The plugin header is the single source of truth for the version - a mismatch between it and the
 // zip name is the kind of thing nobody notices until they are debugging the wrong build.
@@ -70,6 +81,10 @@ await cp(pluginDir, path.join(stagingDir, "handofclient"), {
     return !EXCLUDE_FROM_DIST.has(relative.split(path.sep)[0]);
   },
 });
+
+// Not in the source tree: lib/ exists only in the staged (shipped) plugin.
+await cp(hostSource, path.join(stagingDir, "handofclient/lib/host"), { recursive: true });
+await cp(psrSource, path.join(stagingDir, "handofclient/lib/psr-log"), { recursive: true });
 
 const zipPath = path.join(distDir, `handofclient-${version}.zip`);
 await rm(zipPath, { force: true });

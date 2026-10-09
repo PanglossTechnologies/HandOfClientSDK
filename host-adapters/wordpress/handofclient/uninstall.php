@@ -19,10 +19,16 @@ delete_option( 'hoc_settings' );
 delete_option( 'hoc_safe_mode_tripped' );
 delete_option( 'hoc_failure_count' );
 
+wp_clear_scheduled_hook( 'hoc_site_retry_builds' );
+
 delete_transient( 'hoc_mounted_slots' );
 delete_transient( 'hoc_jwks' );
 delete_transient( 'hoc_jwks_refetch_lock' );
 delete_transient( 'hoc_inflight_render' );
+
+// The request loop's own hoc_* tables (requests, features, versions, assignments) are deliberately left
+// in the database: they are the site's record of what its users asked for and who has what, and dropping
+// them on a plugin delete would be unrecoverable. Drop them by hand if the data is really not wanted.
 
 global $wpdb;
 

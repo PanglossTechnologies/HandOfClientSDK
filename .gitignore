@@ -49,6 +49,7 @@ appsettings.*.local.json
 # (host-adapters/wordpress/build.mjs), so it is generated, not source.
 host-adapters/wordpress/dist/
 host-adapters/wordpress/handofclient/assets/js/embed.global.js
+host-adapters/wordpress/handofclient/assets/js/hoc-head.min.js
 
 # Local WordPress dev harness: a downloaded portable PHP, a WordPress install and its SQLite
 # database. Entirely reproducible from host-adapters/wordpress/devharness/setup.mjs, so none of it is

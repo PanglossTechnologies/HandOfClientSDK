@@ -3,7 +3,7 @@
  * Plugin Name:       HandOfClient
  * Plugin URI:        https://github.com/PanglossTechnologies/HandOfClientSDK
  * Description:       Mounts versioned, sandboxed HandOfClient plugins into this site, and exposes a capability-checked read/write API for them to use.
- * Version:           0.1.0
+ * Version:           0.2.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            HandOfClient
@@ -34,7 +34,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'HOC_VERSION', '0.1.0' );
+define( 'HOC_VERSION', '0.2.0' );
 define( 'HOC_PLUGIN_FILE', __FILE__ );
 define( 'HOC_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'HOC_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -52,6 +52,8 @@ require_once HOC_PLUGIN_DIR . 'includes/class-hoc-rest.php';
 require_once HOC_PLUGIN_DIR . 'includes/class-hoc-mounts.php';
 require_once HOC_PLUGIN_DIR . 'includes/class-hoc-hooks.php';
 require_once HOC_PLUGIN_DIR . 'includes/class-hoc-admin.php';
+require_once HOC_PLUGIN_DIR . 'includes/class-hoc-site-loader.php';
+require_once HOC_PLUGIN_DIR . 'includes/class-hoc-site.php';
 require_once HOC_PLUGIN_DIR . 'includes/class-hoc-customization.php';
 
 /**
@@ -73,6 +75,12 @@ function hoc_bootstrap() {
 		return;
 	}
 
+	// The request loop (HOC_Site) is independent of the slot features below: it has its own endpoints and
+	// storage, so the safe-mode breaker (which guards slot rendering) must not switch it off.
+	HOC_Site_Loader::register();
+	( new HOC_Site() )->register();
+	( new HOC_Customization() )->register();
+
 	if ( HOC_Safe_Mode::is_tripped() ) {
 		HOC_Safe_Mode::register_notice();
 		return;
@@ -83,9 +91,6 @@ function hoc_bootstrap() {
 	// Last: HOC_Hooks reads the cached slot list HOC_Mounts owns, and attaches only to hooks that
 	// have not fired yet by this point (see HOC_Hooks::REFUSED_HOOKS).
 	( new HOC_Hooks() )->register();
-	// Gated here, not alongside HOC_Admin above: unlike Settings, this page has nothing useful to do
-	// until there is a real paired platform connection to submit a request against.
-	( new HOC_Customization() )->register();
 }
 add_action( 'plugins_loaded', 'hoc_bootstrap' );
 
@@ -108,6 +113,7 @@ register_activation_hook( __FILE__, 'hoc_activate' );
  * @return void
  */
 function hoc_deactivate() {
+	wp_clear_scheduled_hook( HOC_Site::CRON_HOOK );
 	HOC_Platform_Client::flush_caches();
 	HOC_Safe_Mode::reset();
 }

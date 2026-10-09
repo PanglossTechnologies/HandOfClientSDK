@@ -37,11 +37,20 @@ const SITE_URL = `http://localhost:${PORT}`;
 const ADMIN_USER = "admin";
 const ADMIN_PASS = "hocadmin";
 
-// PHP 8.3 rather than 8.4/8.5: it is what WordPress is best tested against today.
-const PHP_ZIP = "php-8.3.33-nts-Win32-vs16-x64.zip";
+// PHP 8.3 rather than 8.4/8.5: it is what WordPress is best tested against today. windows.php.net only
+// keeps the newest patch release under /releases/, so a pinned file name 404s as soon as 8.3.N+1 ships;
+// the newest 8.3 NTS x64 build is looked up in releases.json instead.
+const PHP_RELEASES = "https://downloads.php.net/~windows/releases";
+async function latestPhpZipUrl() {
+  const response = await fetch(`${PHP_RELEASES}/releases.json`, { redirect: "follow" });
+  if (!response.ok) throw new Error(`${PHP_RELEASES}/releases.json -> HTTP ${response.status}`);
+  const build = (await response.json())["8.3"]?.["nts-vs16-x64"]?.zip?.path;
+  if (!build) throw new Error("releases.json has no PHP 8.3 nts-vs16-x64 build");
+  return `${PHP_RELEASES}/${build}`;
+}
 
 const DOWNLOADS = [
-  { file: "php.zip", url: `https://windows.php.net/downloads/releases/${PHP_ZIP}` },
+  { file: "php.zip", url: latestPhpZipUrl },
   { file: "wordpress.zip", url: "https://wordpress.org/latest.zip" },
   { file: "sqlite-db.zip", url: "https://downloads.wordpress.org/plugin/sqlite-database-integration.zip" },
   { file: "cacert.pem", url: "https://curl.se/ca/cacert.pem" },
@@ -63,6 +72,7 @@ async function exists(target) {
 async function download(url, dest) {
   if (await exists(dest)) return;
   log(`  downloading ${path.basename(dest)} ...`);
+  if (typeof url === "function") url = await url();
   const response = await fetch(url, { redirect: "follow" });
   if (!response.ok) throw new Error(`${url} -> HTTP ${response.status}`);
   await pipeline(Readable.fromWeb(response.body), createWriteStream(dest));
@@ -70,7 +80,9 @@ async function download(url, dest) {
 
 /** Windows ships bsdtar as tar.exe. Never Compress-Archive: it writes backslash ZIP entries. */
 function untar(zip, into) {
-  execFileSync("tar", ["-xf", zip, "-C", into], { stdio: "inherit" });
+  // Full path on Windows: a GNU tar earlier on PATH (Git for Windows) reads "Z:" as a remote host.
+  const tarBin = process.platform === "win32" ? "C:\\Windows\\System32\\tar.exe" : "tar";
+  execFileSync(tarBin, ["-xf", zip, "-C", into], { stdio: "inherit" });
 }
 
 function php(scriptArgs, options = {}) {
@@ -164,8 +176,8 @@ define( 'DB_COLLATE', '' );
 ${salts}
 $table_prefix = 'wp_';
 
-define( 'WP_HOME', '${SITE_URL}' );
-define( 'WP_SITEURL', '${SITE_URL}' );
+define( 'WP_HOME', getenv( 'HOC_WP_URL' ) ? getenv( 'HOC_WP_URL' ) : '${SITE_URL}' );
+define( 'WP_SITEURL', getenv( 'HOC_WP_URL' ) ? getenv( 'HOC_WP_URL' ) : '${SITE_URL}' );
 define( 'WP_DEBUG', true );
 define( 'WP_DEBUG_LOG', true );
 define( 'WP_DEBUG_DISPLAY', false );
@@ -180,6 +192,27 @@ if ( ! defined( 'ABSPATH' ) ) {
 require_once ABSPATH . 'wp-settings.php';
 `,
     );
+  }
+
+  // Lets the conformance runner point a throwaway WordPress at its own database file (HOC_WP_DB_PATH)
+  // without touching the 8088 harness's data. Idempotent: an older wp-config.php gets the block added.
+  const configPath = path.join(WP, "wp-config.php");
+  const configText = await readFile(configPath, "utf8");
+  // HOC_WP_URL: the conformance/browser runs serve the same WordPress on another port (see conformance/wp-instance.mjs).
+  const migrated = configText
+    .replace("define( 'WP_HOME', '" + SITE_URL + "' );", "define( 'WP_HOME', getenv( 'HOC_WP_URL' ) ? getenv( 'HOC_WP_URL' ) : '" + SITE_URL + "' );")
+    .replace("define( 'WP_SITEURL', '" + SITE_URL + "' );", "define( 'WP_SITEURL', getenv( 'HOC_WP_URL' ) ? getenv( 'HOC_WP_URL' ) : '" + SITE_URL + "' );");
+  if (migrated !== configText) await writeFile(configPath, migrated);
+  if (!configText.includes("HOC_WP_DB_PATH")) {
+    const block = [
+      "// Conformance runs: a throwaway database (host-adapters/wordpress/conformance).",
+      "if ( getenv( 'HOC_WP_DB_PATH' ) ) {",
+      "  define( 'DB_PATH', getenv( 'HOC_WP_DB_PATH' ) );",
+      "}",
+      "",
+      "",
+    ].join(String.fromCharCode(10));
+    await writeFile(configPath, migrated.replace("if ( ! defined( 'ABSPATH' ) ) {", block + "if ( ! defined( 'ABSPATH' ) ) {"));
   }
 
   // Router + auto-login, copied from this folder so they are versioned as source.
@@ -205,7 +238,7 @@ require_once ABSPATH . 'wp-settings.php';
     // test-jwt.php generates a throwaway P-256 key. Without this it fails with a misleading
     // "is ext/openssl configured?" even though the extension is loaded and working.
     const env = { ...process.env, OPENSSL_CONF: path.join(PHP_DIR, "openssl.cnf") };
-    for (const test of ["test-jwt.php", "test-hooks.php"]) {
+    for (const test of ["test-jwt.php", "test-hooks.php", "test-site.php"]) {
       log(`\n--- ${test} ---`);
       execFileSync(PHP, [path.join(REPO_ROOT, "host-adapters/wordpress/handofclient/tests", test)], { stdio: "inherit", env });
     }

@@ -210,42 +210,6 @@ class HOC_Platform_Client {
 	}
 
 	/**
-	 * Submits a free-text "build me a feature" ask - the WordPress half of "type a feature request and
-	 * see it built without a release cycle" (see HOC_Customization). The platform durably records this
-	 * even if iterdone task export/RMTools dispatch are not configured for this host yet - see
-	 * CustomizationRequestSubmissionService.SubmitAsync's own contract.
-	 *
-	 * @param string $requester_name  Display name of whoever is asking.
-	 * @param string $requester_email Their email.
-	 * @param string $request_text    The free-text request itself.
-	 * @return array<string,mixed>|WP_Error
-	 */
-	public function submit_customization_request( $requester_name, $requester_email, $request_text ) {
-		return $this->post(
-			'/customization-request',
-			array(
-				'tenantId'       => HOC_Options::get_tenant_id(),
-				'requesterName'  => $requester_name,
-				'requesterEmail' => $requester_email,
-				'requestText'    => $request_text,
-			)
-		);
-	}
-
-	/**
-	 * Every request this tenant has ever submitted, newest first. Never cached by default (cache_ttl 0)
-	 * - this backs a status list people expect to reflect a submission that literally just happened, and
-	 * a submit-then-immediately-list round trip on the same page load must not read the pre-submission
-	 * cached list back.
-	 *
-	 * @param int $cache_ttl Seconds to cache; 0 (default) disables caching.
-	 * @return array<string,mixed>|WP_Error
-	 */
-	public function list_customization_requests( $cache_ttl = 0 ) {
-		return $this->get( '/customization-request', array( 'tenantId' => HOC_Options::get_tenant_id() ), $cache_ttl );
-	}
-
-	/**
 	 * Performs the HTTP call.
 	 *
 	 * @param string                   $method HTTP method.

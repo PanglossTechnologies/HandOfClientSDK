@@ -366,6 +366,9 @@ class HOC_Mounts {
 					'slotId'     => $slot['slotId'],
 					'apiBaseUrl' => HOC_Options::get_platform_base_url(),
 					'embedOrigin' => HOC_Options::get_embed_origin(),
+					// configure() replaces the whole config, so carry the request-loop prefix along or a legacy
+					// mount on the same page would reset it to the library default.
+					'sitePrefix'  => HOC_Site::site_prefix(),
 					// The nonce travels in the query string, not a header: embed.js fetches this URL
 					// with a bare fetch() and cannot add headers. WordPress accepts _wpnonce as a
 					// request parameter for exactly this kind of case.

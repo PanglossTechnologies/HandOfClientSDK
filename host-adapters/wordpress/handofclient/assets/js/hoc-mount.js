@@ -65,7 +65,8 @@
 		if ( ! configured ) {
 			window.HandOfClient.configure( {
 				apiBaseUrl: config.apiBaseUrl,
-				embedOrigin: config.embedOrigin
+				embedOrigin: config.embedOrigin,
+				sitePrefix: config.sitePrefix
 			} );
 			configured = true;
 		}

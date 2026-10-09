@@ -4,7 +4,7 @@ Tags: plugins, extensibility, embed, api
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 0.1.0
+Stable tag: 0.2.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -31,6 +31,14 @@ following true:
 * A feature can only call third-party services you have explicitly allowlisted.
 * API keys a feature needs are stored on the platform, not in your database, and are substituted
   into outbound requests server-side. The feature never sees them, and neither does the browser.
+
+= Request a feature =
+
+Signed-in users get a "Request a feature" button on every page. They describe what they want, it is built
+automatically, and only they see the change until they (or an administrator, as your sharing rules allow)
+share it. Administrators get **HandOfClient > Request a Feature** and **HandOfClient > Feature admin** in
+wp-admin. Requests, features and who-sees-what are stored in `hoc_*` tables in your own database. This needs
+PHP 8.1 or newer and the `pdo_mysql` extension (or the SQLite database plugin).
 
 = Where features appear =
 
@@ -64,9 +72,13 @@ The full catalogue, including which capability each query needs, is visible at
    whether the key is accepted, and whether this site's URL is registered as an allowed origin on the
    platform - features will not render until that last one is true.
 
-For better security, put the API key in `wp-config.php` instead of the database:
+To use "Request a feature", register the Webhook URL shown in the Status table with the platform, and
+enter the webhook secret it returns.
+
+For better security, put the API key and webhook secret in `wp-config.php` instead of the database:
 
     define( 'HOC_API_KEY', 'hoc_...' );
+    define( 'HOC_WEBHOOK_SECRET', 'whsec_...' );
 
 The plugin prefers that constant when it is present, which keeps the credential out of database
 dumps, migration exports and staging clones.
@@ -96,6 +108,11 @@ you set for that slot.
 Untick **Enabled** on the settings screen. No hooks are registered at all when it is off.
 
 == Changelog ==
+
+= 0.2.0 =
+* Request a feature: per-user request box, "my features" and feature admin on the new host module,
+  a webhook receiver at /hoc/webhook, and WordPress users mapped onto the module. Replaces the
+  admin-only "Request a Feature" form.
 
 = 0.1.0 =
 * First release: pairing, slot discovery, page/panel/override mounting, the named-query data API,

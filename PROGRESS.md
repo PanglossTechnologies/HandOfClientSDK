@@ -176,3 +176,23 @@ Known gaps: the import check is a regex over source (an import hidden in a strin
 Decisions: the sample reads `hoc-head.min.js` and `embed.global.js` from `static/` (copied by `fetch_assets.py`, gitignored) rather than vendoring them; a polling fallback is documented as status-only because `GET /builds/{id}` carries no version, so the module does not poll.
 
 Known gaps: the latest GitHub release (v0.1.0) predates the components, `autoMount` and `hoc-head.min.js`, so the sample needs a source build until a new release is cut; `handofclient` is not on PyPI yet; the Python module README still names the (fixed).
+
+## 2026-10-09 - CL-22 WordPress adapter on the new model
+
+Plugin 0.2.0 serves the customization loop through the bundled PHP host module (`HOC_Site`): `hoc/token`, `hoc/api/*` and `hoc/webhook` answer from `init` under
+`<home>/hoc/`, WordPress users map onto the module's callbacks (admin = `manage_options`, share picker = `WP_User_Query`), builds go to `POST /host/v1/builds` through the WP HTTP API,
+and requests/features/assignments live in `hoc_*` tables in the WordPress database. Signed-in users get embed.js with `autoMount`, the `hoc-head` snippet and a "Request a feature" dock
+(request box + my features; shortcodes `[hoc_request_feature]` / `[hoc_my_features]` as an alternative); wp-admin gets **Request a Feature** and **Feature admin** (`<hoc-feature-admin>`).
+The old admin-only form and its `/customization-request` client calls are gone. `build.mjs` now bundles the module and psr/log into the zip (`lib/`), and the plugin finds them in
+`host-modules/` in a source checkout.
+
+Proof: the CL-16 suite passes 97/97 against a throwaway WordPress (`conformance/run-conformance.mjs`, which also checks the CSRF policy: cross-site and `Origin: null` writes 403, signed webhook exempt);
+`conformance/browser.test.mjs` (real wp-login users, fake platform, Chrome) passes 6/6 at desktop and iPhone: request -> built -> only the requester sees it, wp-admin screens, signed-out and subscriber negatives;
+29 standalone PHP tests (`tests/test-site.php`: DB_HOST -> DSN forms, cross-site check, prefix, identity filters).
+
+Decisions: PDO rather than `$wpdb` (the module is PDO-based; `pdo_mysql` from the wp-config credentials, or the SQLite plugin's file), so hosts without `pdo_mysql` see a clear "not available" line in Settings
+instead of a fatal; the loop is registered before the legacy safe-mode breaker so slot failures cannot switch it off; the file stays PHP 7.4-parseable (no named arguments) so older sites keep the slot features.
+Dev harness: PHP is resolved from releases.json (the pinned 8.3.33 download 404ed), tar uses System32's bsdtar (Git's GNU tar read `Z:` as a host), and the wp-config accepts `HOC_WP_DB_PATH` / `HOC_WP_URL` for throwaway instances.
+
+Known gaps: MySQL is covered by the DSN unit tests and the module's own MariaDB run (CL-19), not by a live WordPress-on-MySQL run; multisite shares one set of `hoc_*` tables; no CI job runs the WordPress checks (the harness is Windows PHP);
+the production site's own migration (register the webhook URL, enter the secret, enable) needs the site owner's WordPress access (Needs Human).

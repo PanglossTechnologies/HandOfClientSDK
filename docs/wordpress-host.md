@@ -305,12 +305,58 @@ Not yet verified live, and honestly flagged:
   three times across separate sessions: `resize_window` reports success and the rendering does not
   change. Needs a manual check or an automation-side fix, not another retry.
 
-## 10. Not built, deliberately
+## 10. The customization loop (request a feature, see it built)
+
+Version 0.2.0 adds the per-user loop from [`integration-guide.md`](integration-guide.md) on top of the slot
+features above, using the bundled PHP host module ([`host-modules/php`](../host-modules/php)); it replaces
+the old admin-only "Request a Feature" form (which called the platform's `/customization-request`). A
+signed-in user types what they want into a box, the platform builds it, and only that user sees the change
+until it is shared.
+
+- **Endpoints.** The module is mounted at `<home>/hoc/`: `hoc/token`, `hoc/api/*` and `hoc/webhook`, answered
+  from the `init` hook before WordPress routes the request (so pretty permalinks are required, as for any
+  front-end URL). Identity is only ever the WordPress session: `wp_get_current_user()`. Administrators
+  (`manage_options`) are the module's admins. The share picker searches WordPress users by login, name and
+  email and returns only id and display name.
+- **Storage.** `hoc_*` tables in the WordPress database (requests, features, versions, assignments,
+  per-user pins, settings), created and upgraded by the module. They are reached through PDO, because the
+  module is PDO-based: `pdo_mysql` with the credentials in `wp-config.php` (every `DB_HOST` form, including a
+  socket), or the SQLite integration plugin's own database file. Uninstalling the plugin leaves the tables.
+  On multisite all sites currently share one set of tables (the module's table names are fixed); do not enable
+  the loop on more than one site of a network yet.
+- **Front end, signed-in users only.** `embed.global.js` (shipped in the plugin, never fetched at runtime) is
+  configured with `sitePrefix`, `HandOfClient.autoMount` applies the features that match the page, the
+  `hoc-head` snippet hides the page until it knows what applies (5 s at most), and a "Request a feature" dock
+  (bottom right, collapsible) holds `<hoc-request-feature>` and `<hoc-my-features>`. Turn the dock off in
+  Settings and place `[hoc_request_feature]` / `[hoc_my_features]` yourself if you prefer.
+- **wp-admin.** **HandOfClient > Request a Feature** (the same two components) and **HandOfClient > Feature
+  admin** (`<hoc-feature-admin>`: sharing rules, rendering mode, every request and feature, roll back for
+  everyone, data sources). Settings shows the webhook URL to register with the platform and takes the
+  webhook secret (or `define( 'HOC_WEBHOOK_SECRET', '...' );` in `wp-config.php`, preferred).
+- **Builds.** A request is stored, then `POST /host/v1/builds` is called through WordPress's HTTP API. If the
+  platform cannot be reached it is retried after later responses and by WP-Cron every five minutes (the
+  platform deduplicates on the request id, so a missed cron only delays a retry).
+- **CSRF.** The browser components use the session cookie, so a state-changing call whose `Origin` is another
+  site (or `Sec-Fetch-Site: cross-site` with no `Origin`) is refused with `403`; the signed webhook is exempt.
+  Extra origins: the `hoc_site_allowed_origins` filter.
+- **Requirements.** PHP 8.1+ with `pdo` and `mbstring`; on older PHP the plugin still runs the slot features
+  and Settings says why requests are unavailable.
+- **Filters** (for SSO bridges and tests): `hoc_site_current_user`, `hoc_site_is_admin`, `hoc_site_find_users`,
+  `hoc_site_user_exists`, `hoc_site_load_front_end`, `hoc_site_allowed_origins`, and the `hoc_site_log` action.
+
+Proof: `node host-adapters/wordpress/conformance/run-conformance.mjs` runs the language-neutral suite
+([`host-modules/conformance`](../host-modules/conformance/README.md)) against a throwaway WordPress built by
+the dev harness (plus the CSRF policy above), and `node --test host-adapters/wordpress/conformance/browser.test.mjs`
+drives real wp-login sessions in Chrome at a desktop and an iPhone viewport against the fake platform.
+`node host-adapters/wordpress/devharness/setup.mjs --test` runs the standalone PHP tests.
+
+## 11. Not built, deliberately
 
 - **OAuth broker.** Third-party sources needing OAuth (Analytics, QuickBooks, Shopify) require the
   platform to own the OAuth app and store per-tenant refresh tokens, since a redirect URI cannot be
   registered per customer domain.
-- **Scheduled pulls.** Do not use WP-Cron: it fires on page loads, so a low-traffic site never syncs,
+- **Scheduled pulls.** Do not use WP-Cron for data syncs (the customization loop uses it only as a backstop
+  for retrying a build start): it fires on page loads, so a low-traffic site never syncs,
   and many hosts set `DISABLE_WP_CRON`. Schedules belong on the platform, pushing into the site.
 - **SSR fragment mode.** Public-facing output is an iframe today, which is wrong for SEO and cannot
   inherit theme CSS. The fix is an embed mode where the platform returns sanitised HTML that the

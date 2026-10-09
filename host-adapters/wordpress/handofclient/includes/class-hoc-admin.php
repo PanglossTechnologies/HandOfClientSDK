@@ -118,6 +118,7 @@ class HOC_Admin {
 			'tenant_id'         => isset( $_POST['tenant_id'] ) ? sanitize_text_field( wp_unslash( $_POST['tenant_id'] ) ) : '',
 			'enabled'           => ! empty( $_POST['enabled'] ),
 			'cache_ttl'         => isset( $_POST['cache_ttl'] ) ? max( 30, min( 3600, (int) $_POST['cache_ttl'] ) ) : 300,
+			'show_dock'         => ! empty( $_POST['show_dock'] ),
 		);
 
 		// An empty API key field means "leave it alone", so re-saving the page does not wipe a key the
@@ -127,6 +128,13 @@ class HOC_Admin {
 		}
 		if ( ! empty( $_POST['clear_api_key'] ) ) {
 			$values['api_key'] = '';
+		}
+		// Same rules for the webhook secret: blank keeps it, clearing is explicit.
+		if ( isset( $_POST['webhook_secret'] ) && '' !== trim( (string) wp_unslash( $_POST['webhook_secret'] ) ) ) {
+			$values['webhook_secret'] = sanitize_text_field( wp_unslash( $_POST['webhook_secret'] ) );
+		}
+		if ( ! empty( $_POST['clear_webhook_secret'] ) ) {
+			$values['webhook_secret'] = '';
 		}
 
 		HOC_Options::update( $values );
@@ -404,6 +412,25 @@ class HOC_Admin {
 		);
 
 		printf(
+			'<tr><th>%s</th><td><code>%s</code><br><small>%s</small></td></tr>',
+			esc_html__( 'Webhook URL', 'handofclient' ),
+			esc_html( HOC_Site::webhook_url() ),
+			esc_html__( 'Register this with the platform for your host; it returns the webhook secret below.', 'handofclient' )
+		);
+
+		$loop_problem = HOC_Site::unavailable_reason();
+		if ( '' === $loop_problem && '' === HOC_Options::get_webhook_secret() ) {
+			$loop_problem = __( 'Waiting for the webhook secret.', 'handofclient' );
+		}
+		printf(
+			'<tr><th>%s</th><td>%s</td></tr>',
+			esc_html__( 'Feature requests', 'handofclient' ),
+			'' === $loop_problem
+				? '<span style="color:#00a32a">' . esc_html__( 'Ready', 'handofclient' ) . '</span>'
+				: '<span style="color:#d63638">' . esc_html__( 'Not running', 'handofclient' ) . '</span> - ' . esc_html( $loop_problem )
+		);
+
+		printf(
 			'<tr><th>%s</th><td>%s</td></tr>',
 			esc_html__( 'API key source', 'handofclient' ),
 			HOC_Options::api_key_is_from_constant()
@@ -473,6 +500,28 @@ class HOC_Admin {
 			'' !== HOC_Options::get_api_key() ? esc_attr__( '(unchanged)', 'handofclient' ) : '',
 			esc_html__( 'Leave blank to keep the current key. Never displayed back.', 'handofclient' ),
 			esc_html__( 'Clear the stored key', 'handofclient' )
+		);
+
+		printf(
+			'<tr><th scope="row"><label for="webhook_secret">%s</label></th><td>
+				<input type="password" id="webhook_secret" name="webhook_secret" value="" class="regular-text" autocomplete="new-password" placeholder="%s" />
+				<p class="description">%s</p>
+				<label><input type="checkbox" name="clear_webhook_secret" value="1" /> %s</label>
+			</td></tr>',
+			esc_html__( 'Webhook secret', 'handofclient' ),
+			'' !== HOC_Options::get_webhook_secret() ? esc_attr__( '(unchanged)', 'handofclient' ) : '',
+			HOC_Options::webhook_secret_is_from_constant()
+				? esc_html__( 'Set by the HOC_WEBHOOK_SECRET constant in wp-config.php, which wins over this field.', 'handofclient' )
+				: esc_html__( 'Returned once when the webhook URL is registered with the platform. Verifies the build results it sends this site. Define HOC_WEBHOOK_SECRET in wp-config.php to keep it out of database dumps.', 'handofclient' ),
+			esc_html__( 'Clear the stored secret', 'handofclient' )
+		);
+
+		printf(
+			'<tr><th scope="row">%s</th><td><label><input type="checkbox" name="show_dock" value="1" %s /> %s</label><p class="description">%s</p></td></tr>',
+			esc_html__( 'Request box', 'handofclient' ),
+			checked( ! empty( $settings['show_dock'] ), true, false ),
+			esc_html__( 'Show "Request a feature" on every page for signed-in users', 'handofclient' ),
+			esc_html__( 'Or place [hoc_request_feature] and [hoc_my_features] where you want them.', 'handofclient' )
 		);
 
 		printf(

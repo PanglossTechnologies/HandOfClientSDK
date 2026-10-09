@@ -38,6 +38,11 @@ class HOC_Options {
 			'host_id'           => '',
 			'api_key'           => '',
 			'tenant_id'         => '',
+			// HMAC secret that verifies the platform's signed webhooks (returned once, when the webhook URL is
+			// registered). Prefer the HOC_WEBHOOK_SECRET constant - see get_webhook_secret().
+			'webhook_secret'    => '',
+			// Request box + "my features" dock on every front-end page for signed-in users.
+			'show_dock'         => true,
 			// Slot discovery cache lifetime. Short enough that activating a plugin on the platform
 			// shows up promptly, long enough that a busy site is not making an HTTP call per request.
 			'cache_ttl'         => 300,
@@ -145,6 +150,27 @@ class HOC_Options {
 	 */
 	public static function api_key_is_from_constant() {
 		return defined( 'HOC_API_KEY' ) && is_string( HOC_API_KEY ) && '' !== HOC_API_KEY;
+	}
+
+	/**
+	 * The webhook secret, preferring a wp-config.php constant over the database (same reasoning as
+	 * get_api_key()).
+	 *
+	 * @return string
+	 */
+	public static function get_webhook_secret() {
+		if ( defined( 'HOC_WEBHOOK_SECRET' ) && is_string( HOC_WEBHOOK_SECRET ) && '' !== HOC_WEBHOOK_SECRET ) {
+			return HOC_WEBHOOK_SECRET;
+		}
+		$secret = self::get( 'webhook_secret', '' );
+		return is_string( $secret ) ? $secret : '';
+	}
+
+	/**
+	 * @return bool True when the webhook secret comes from wp-config.php rather than the database.
+	 */
+	public static function webhook_secret_is_from_constant() {
+		return defined( 'HOC_WEBHOOK_SECRET' ) && is_string( HOC_WEBHOOK_SECRET ) && '' !== HOC_WEBHOOK_SECRET;
 	}
 
 	/**
