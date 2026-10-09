@@ -137,7 +137,7 @@ describe("hoc-publish end to end (stub platform)", () => {
       for await (const c of req) chunks.push(c);
       const body = Buffer.concat(chunks);
       if (req.method === "POST" && req.url === "/internal/bundles") {
-        seen.uploads.push({ key: req.headers["x-api-key"], size: body.length });
+        seen.uploads.push({ key: req.headers["x-api-key"], host: req.headers["x-hoc-host"], size: body.length });
         if (behavior.rejectUpload) { res.writeHead(401).end(); return; }
         const bundleHash = createHash("sha256").update(body).digest("hex");
         res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ bundleHash }));
@@ -226,6 +226,24 @@ describe("hoc-publish end to end (stub platform)", () => {
     assert.equal(sent.request.manifest.path, "/orders");
     assert.equal(sent.request.manifest.bundle.fileIntegrity["feature.js"], expected);
     assert.equal(sent.request.manifest.bundle.bundleHash, printed.bundleHash);
+  });
+
+  test("--on-behalf-of-host sends x-hoc-host on the upload and the publish", async () => {
+    reset();
+    const args = await fixture("obo", injectManifest(), { "feature.js": "export {};" });
+    const result = await run([...args, "--api-base-url", baseUrl, "--api-key", "op-key", "--on-behalf-of-host", "host-9"]);
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(seen.uploads[0].host, "host-9");
+    assert.equal(seen.publishes[0].host, "host-9");
+    assert.equal(seen.publishes[0].key, "op-key");
+  });
+
+  test("--on-behalf-of-host without a value is a usage error", async () => {
+    reset();
+    const args = await fixture("obo2", injectManifest(), { "feature.js": "export {};" });
+    const result = await run([...args, "--api-base-url", baseUrl, "--api-key", "k", "--on-behalf-of-host"]);
+    assert.notEqual(result.code, 0);
+    assert.match(result.stderr, /Missing value for --on-behalf-of-host/);
   });
 
   test("reads key, base url and host from the environment", async () => {

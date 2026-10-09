@@ -8,6 +8,9 @@ export interface AuthInterceptorOptions {
   /** x-api-key value for HostApiKey/SuperAdminKey-gated RPCs (registry management, audit query,
    * entitlement admin - calls made from a host's own backend). Omit for a plugin-side client. */
   apiKey?: string;
+  /** Sent as x-hoc-host on every call: the host an operator (super-admin) key acts for. Ignored by the
+   * platform for a host's own API key. */
+  onBehalfOfHost?: string;
 }
 
 /**
@@ -23,6 +26,7 @@ export interface AuthInterceptorOptions {
 export function authInterceptor(options: AuthInterceptorOptions): Interceptor {
   return (next) => async (req) => {
     if (options.apiKey) req.header.set("x-api-key", options.apiKey);
+    if (options.onBehalfOfHost) req.header.set("x-hoc-host", options.onBehalfOfHost);
     if (!options.tokenProvider) return next(req);
 
     const tokenProvider = options.tokenProvider;

@@ -18,6 +18,9 @@ export interface HocClientOptions {
   /** x-api-key value for HostApiKey/SuperAdminKey-gated RPCs (registry management, audit query,
    * entitlement admin - calls made from a host's own backend). Omit for a plugin-side client. */
   apiKey?: string;
+  /** Host id sent as x-hoc-host on every call, for an operator (super-admin) `apiKey` acting on a host's
+   * behalf. Ignored by the platform for a host's own key. */
+  onBehalfOfHost?: string;
   /** Override fetch (tests, non-global-fetch runtimes). Defaults to global fetch. */
   fetch?: typeof fetch;
 }
@@ -48,7 +51,7 @@ export function createHocClient(options: HocClientOptions): HocClient {
   const transport = createGrpcWebTransport({
     baseUrl: options.baseUrl,
     fetch: options.fetch,
-    interceptors: [authInterceptor({ tokenProvider: options.tokenProvider, apiKey: options.apiKey })],
+    interceptors: [authInterceptor({ tokenProvider: options.tokenProvider, apiKey: options.apiKey, onBehalfOfHost: options.onBehalfOfHost })],
   });
 
   return {

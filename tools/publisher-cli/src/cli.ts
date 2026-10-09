@@ -2,14 +2,14 @@
 import { PublishError, publish } from "./publish.js";
 
 function printUsageAndExit(code: number): never {
-  console.error(`Usage: hoc-publish --manifest <manifest.json> --bundle <bundle-dir> --api-base-url <url> --api-key <key> [--host-id <id>] [--json] [--dry-run]
+  console.error(`Usage: hoc-publish --manifest <manifest.json> --bundle <bundle-dir> --api-base-url <url> --api-key <key> [--on-behalf-of-host <id>] [--json] [--dry-run]
 
   --manifest       Path to the author manifest.json (see src/authorManifest.ts for the schema)
   --bundle         Path to the directory containing the plugin's static bundle files
   --api-base-url   Platform API base URL, e.g. https://api.handofclient.com   (or env HOC_API_BASE_URL)
   --api-key        Host API key (from RegisterHost) - never commit this to source control   (or env HOC_API_KEY)
-  --host-id        Publish as this host; required when --api-key is the platform super-admin key
-                   (build automation). Sent as x-hoc-host.   (or env HOC_HOST_ID)
+  --on-behalf-of-host  Publish on behalf of this host with an operator key; required when --api-key is
+                   the platform super-admin key. Sent as x-hoc-host. --host-id is an alias.   (or env HOC_HOST_ID)
   --json           Print one machine-readable result object to stdout (progress goes to stderr)
   --dry-run        Validate and pack, print entry integrity hashes, but do not upload or publish anything
 
@@ -45,7 +45,7 @@ function parseArgs(argv: string[]): CliArgs {
       case "--bundle": result.bundle = value(++i); break;
       case "--api-base-url": result.apiBaseUrl = value(++i); break;
       case "--api-key": result.apiKey = value(++i); break;
-      case "--host-id": result.hostId = value(++i); break;
+      case "--on-behalf-of-host": case "--host-id": result.hostId = value(++i); break;
       case "--json": result.json = true; break;
       case "--dry-run": result.dryRun = true; break;
       case "--help": case "-h": printUsageAndExit(0);

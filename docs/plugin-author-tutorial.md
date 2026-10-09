@@ -232,7 +232,7 @@ checks it against the value the platform recorded. For build automation:
 
 - `--json` prints one result object (`packageId`, `version`, `render`, `bundleHash`, `entries[]`, `published`) to
   stdout; progress goes to stderr. A failure exits 1.
-- `--host-id <id>` publishes as that host when `--api-key` is the platform super-admin key (sent as `x-hoc-host`).
+- `--on-behalf-of-host <id>` (alias `--host-id`) publishes on behalf of that host when `--api-key` is an operator (super-admin) key; sent as `x-hoc-host`.
 - `HOC_API_KEY`, `HOC_API_BASE_URL` and `HOC_HOST_ID` can replace the flags, keeping keys out of command lines.
 
 ## Troubleshooting

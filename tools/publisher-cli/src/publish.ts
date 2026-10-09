@@ -93,7 +93,7 @@ export async function publish(options: PublishOptions, log: (line: string) => vo
   log("Uploading bundle ...");
   const uploadResponse = await fetch(`${options.apiBaseUrl}/internal/bundles`, {
     method: "POST",
-    headers: { "x-api-key": options.apiKey, "content-type": "application/zip" },
+    headers: { "x-api-key": options.apiKey, "content-type": "application/zip", ...(options.hostId ? { "x-hoc-host": options.hostId } : {}) },
     body: packed.zipBytes,
   });
   if (!uploadResponse.ok) {
@@ -105,7 +105,7 @@ export async function publish(options: PublishOptions, log: (line: string) => vo
   }
   log(`Bundle uploaded, confirmed hash ${uploadedHash}.`);
 
-  const client = createHocClient({ baseUrl: options.apiBaseUrl, apiKey: options.apiKey });
+  const client = createHocClient({ baseUrl: options.apiBaseUrl, apiKey: options.apiKey, onBehalfOfHost: options.hostId });
   const fileIntegrity: Record<string, string> = {};
   for (const file of packed.files) fileIntegrity[file.relativePath] = file.sri;
 
@@ -115,7 +115,7 @@ export async function publish(options: PublishOptions, log: (line: string) => vo
     response = await client.packageRegistry.publishVersion({
       bundleUploadRef: uploadedHash,
       manifest: toProtoManifest(manifest, uploadedHash, fileIntegrity),
-    }, options.hostId ? { headers: { "x-hoc-host": options.hostId } } : undefined);
+    });
   } catch (error) {
     // ConnectError messages already read "[code] detail" (e.g. "[already_exists] ... is already published").
     throw new PublishError(`PublishVersion failed: ${error instanceof Error ? error.message : String(error)}`);
