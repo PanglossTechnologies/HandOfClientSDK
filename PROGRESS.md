@@ -117,3 +117,24 @@ Django's webhook route is always CSRF-exempt, the browser routes follow the site
 
 Known gaps: MySQL has only been exercised by dialect unit tests locally (the CI MySQL job is its first live run); PyPI publishing needs a
 trusted-publisher entry on pypi.org (Needs Human); `samples/hosts/python-flask` still shows only the legacy token endpoint.
+
+## 2026-10-09 - CL-18 Node host module
+
+New `host-modules/node/` (npm `@handofclient/host`, Node 18+, zero runtime dependencies, ESM + CommonJS + types): `HostModule` is a
+direct port of the Python module's rules (same routes, validation, visibility/sharing/resolve precedence, webhook handling, build
+retry timers) over an async `Storage`/`StorageTx` interface. `SqlStorage` owns the same `hoc_*` schema as the Python module (so both
+can serve one database): SQLite via `node:sqlite` (single connection, transactions queued), PostgreSQL from a `pg` Pool, MySQL from a
+`mysql2/promise` Pool, with a PostgreSQL advisory lock / MySQL `GET_LOCK` around migrations. Adapters: `@handofclient/host/express`
+(`router`), `/fastify` (encapsulated `plugin` with its own raw-body parser) and `/node` (`nodeHandler`, what Express is built on).
+
+Proof: the CL-16 suite passes under Express, Fastify and plain node:http on SQLite (`node conformance/run-conformance.mjs`) and under
+Express on a live PostgreSQL (embedded pgserver); 60 `node:test` unit tests cover negative cases for every route, webhook replay and
+failed-apply retry, storage, both SQL drivers against fake pools, raw-body handling in Express, Fastify encapsulation and the CJS build.
+CI (`.github/workflows/node-host-module.yml`) adds typecheck, Node 22/24, real PostgreSQL and MySQL services, and a tag-triggered
+`host-node-vX.Y.Z` npm Trusted Publishing job.
+
+Decisions: webhook dedupe + apply share one transaction; the Express router must run before body parsers (or capture `req.rawBody`)
+because the signature is over the raw bytes; the default logger only prints warnings/errors (info per call needs a `logger`).
+
+Known gaps: MySQL has only been exercised by fake-pool unit tests locally (the CI MySQL job is its first live run); npm publishing
+needs the `@handofclient` org and a trusted-publisher entry on npmjs.com (Needs Human); `samples/hosts/` has no Node example yet.

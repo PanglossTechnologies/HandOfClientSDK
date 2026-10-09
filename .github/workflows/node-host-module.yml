@@ -1,0 +1,138 @@
+name: node-host-module
+
+# Tests the Node host module (host-modules/node) and publishes it to npm as @handofclient/host.
+#   * every push / PR touching it: unit tests + the CL-16 conformance suite under Express, Fastify and plain
+#     node:http (SQLite), then the same suite against real PostgreSQL and MySQL servers
+#   * tag host-node-vX.Y.Z (must equal the version in package.json): build + publish to npm through Trusted
+#     Publishing (OIDC, no stored token). One-time setup on npmjs.com: after the first publish (or by creating the
+#     package with a granular token once), add a trusted publisher for "@handofclient/host": repo
+#     PanglossTechnologies/HandOfClientSDK, workflow node-host-module.yml, environment "npm".
+on:
+  push:
+    branches: [main]
+    tags: ["host-node-v*.*.*"]
+    paths:
+      - "host-modules/node/**"
+      - "host-modules/conformance/**"
+      - "openapi/**"
+      - ".github/workflows/node-host-module.yml"
+  pull_request:
+    paths:
+      - "host-modules/node/**"
+      - "host-modules/conformance/**"
+      - "openapi/**"
+      - ".github/workflows/node-host-module.yml"
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: host-modules/node
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: host-modules/node/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: node conformance/run-conformance.mjs --reporter dot
+
+  conformance-db:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        framework: [express, fastify, node]
+        db: [postgres, mysql]
+    services:
+      postgres:
+        image: postgres:16
+        env: { POSTGRES_PASSWORD: hoc, POSTGRES_DB: hoc }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+      mysql:
+        image: mysql:8
+        env: { MYSQL_ROOT_PASSWORD: hoc, MYSQL_DATABASE: hoc }
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -phoc" --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: host-modules/node/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      # The fresh-database test needs an empty database, so each framework gets its own.
+      - name: Fresh database for ${{ matrix.framework }}
+        run: |
+          if [ "${{ matrix.db }}" = postgres ]; then
+            PGPASSWORD=hoc psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE ${{ matrix.framework }}_hoc"
+          else
+            mysql -h 127.0.0.1 -uroot -phoc -e "CREATE DATABASE ${{ matrix.framework }}_hoc CHARACTER SET utf8mb4"
+          fi
+      - name: Conformance suite on ${{ matrix.db }}
+        env:
+          HOC_CONFORMANCE_DATABASE_URL: ${{ matrix.db == 'postgres' && format('postgresql://postgres:hoc@127.0.0.1:5432/{0}_hoc', matrix.framework) || format('mysql://root:hoc@127.0.0.1:3306/{0}_hoc', matrix.framework) }}
+        run: node conformance/run-conformance.mjs ${{ matrix.framework }} --db env --reporter spec
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: host-modules/node/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npm pack
+      - name: Tag matches the package version
+        if: startsWith(github.ref, 'refs/tags/host-node-v')
+        run: |
+          want="${GITHUB_REF_NAME#host-node-v}"
+          have="$(node -p "require('./package.json').version")"
+          test "$want" = "$have" || { echo "tag $want != package.json $have"; exit 1; }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package
+          path: host-modules/node/*.tgz
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/host-node-v')
+    needs: [test, conformance-db, build]
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: package
+          path: package/
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - run: npm install -g npm@latest
+      - run: npm publish package/*.tgz --provenance --access public

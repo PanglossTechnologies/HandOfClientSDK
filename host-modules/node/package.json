@@ -1,0 +1,64 @@
+{
+  "name": "@handofclient/host",
+  "version": "0.1.0",
+  "description": "HandOfClient host module for Node.js: request, build and roll out per-user site features (Express, Fastify; SQLite, PostgreSQL, MySQL).",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PanglossTechnologies/HandOfClientSDK.git",
+    "directory": "host-modules/node"
+  },
+  "homepage": "https://github.com/PanglossTechnologies/HandOfClientSDK/tree/main/host-modules/node",
+  "keywords": ["handofclient", "express", "fastify", "plugins"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/esm/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/esm/index.d.ts",
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.js"
+    },
+    "./express": {
+      "types": "./dist/esm/adapters/express.d.ts",
+      "import": "./dist/esm/adapters/express.js",
+      "require": "./dist/cjs/adapters/express.js"
+    },
+    "./fastify": {
+      "types": "./dist/esm/adapters/fastify.d.ts",
+      "import": "./dist/esm/adapters/fastify.js",
+      "require": "./dist/cjs/adapters/fastify.js"
+    },
+    "./node": {
+      "types": "./dist/esm/adapters/node.d.ts",
+      "import": "./dist/esm/adapters/node.js",
+      "require": "./dist/cjs/adapters/node.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test \"test/*.test.mjs\"",
+    "test:conformance": "npm run build && node conformance/run-conformance.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "express": "^4.21.2",
+    "fastify": "^5.2.0",
+    "mysql2": "^3.11.0",
+    "pg": "^8.13.0",
+    "typescript": "^5.9.3"
+  }
+}

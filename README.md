@@ -109,6 +109,7 @@ Start from [`samples/plugins/hello-world`](samples/plugins/hello-world); see
 | `host-adapters/wordpress` | Installable WordPress host plugin |
 | `host-modules/conformance` | Language-neutral conformance suite for host modules, and a fake platform for local development |
 | `host-modules/python` | `handofclient` for Python: the host module (Flask, Django, FastAPI; SQLite, PostgreSQL, MySQL) |
+| `host-modules/node` | `@handofclient/host` for Node.js: the host module (Express, Fastify, node:http; SQLite, PostgreSQL, MySQL) |
 | `samples/` | Host and plugin examples |
 | `docs/` | Protocol spec and guides |
 
