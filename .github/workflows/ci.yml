@@ -1,0 +1,145 @@
+name: ci
+
+# Everything that can be proven from a fresh clone, with no other repository and no real platform:
+#   contracts    proto lint, regenerated gen/ must equal the committed gen/, OpenAPI files validate
+#   node         npm ci, build every package, typecheck, unit tests (embed.js, publisher CLI), conformance suite self-test
+#                (reference host + mutants), publish dry run of every plugin sample
+#   dotnet       C# client, bootstrap tool and the .NET host sample build; the sample runs and is smoke-tested in a browser
+#   flask        the Flask host sample: pytest + a Chrome run (desktop and iPhone) of request -> built -> requester only
+#   wordpress    the WordPress plugin's standalone PHP tests and the distributable zip
+# Covered by their own workflows (path-filtered, and they hold the publish jobs):
+#   node-host-module, python-host-module, php-host-module   unit tests + the conformance suite for every host module and
+#                                                           framework adapter (Express, Fastify, node:http, Flask, Django,
+#                                                           FastAPI, plain PHP, Laravel 11-13) on SQLite, PostgreSQL, MySQL
+#   lint-public-repo                                        banned terms + broken links
+#   release                                                 v*.*.* tags: GitHub release + npm publish
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run proto:lint
+      - name: Regenerated gen/ equals the committed gen/
+        run: npm run check:generated
+      - name: OpenAPI files validate
+        run: npm run lint:openapi
+
+  node:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run typecheck
+      - name: Unit tests (embed.js, publisher CLI)
+        run: npm test
+      - name: Conformance suite self-test against the reference host
+        run: npm run test:conformance
+      - name: Conformance suite catches broken hosts (mutants)
+        run: npm run test:conformance-mutants
+      # npm ci ran before the publisher CLI existed, so its hoc-publish bin is linked only now.
+      - run: npm rebuild
+      - name: Every plugin sample passes the publisher's manifest and bundle checks
+        run: npm run publish:dry-run:samples
+
+  dotnet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - run: npm ci
+      - run: npm run build
+      - run: dotnet build clients/csharp/HandOfClient.Client -c Debug -nologo -clp:"ErrorsOnly;Summary"
+      - run: dotnet build tools/sample-bootstrap/HandOfClient.SampleBootstrap -c Debug -nologo -clp:"ErrorsOnly;Summary"
+      - run: dotnet build samples/hosts/dotnet/HandOfClient.Samples.DotNetHost -c Debug -nologo -clp:"ErrorsOnly;Summary"
+      - name: Run the .NET host sample and smoke-test it (HTTP + headless Chrome)
+        run: npm run smoke:dotnet-sample
+
+  flask:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: npm ci
+      - run: npm run build
+      - name: Sample dependencies (the handofclient module from this checkout)
+        working-directory: samples/hosts/python-flask
+        run: |
+          python fetch_assets.py
+          pip install ../../../host-modules/python -r requirements.txt pytest
+      - name: pytest against the fake platform
+        working-directory: samples/hosts/python-flask
+        run: python -m pytest tests -q
+      - name: Chrome run at desktop and iPhone viewports, under the sample's real CSP
+        working-directory: samples/hosts/python-flask
+        run: node --test tests/browser.test.mjs
+
+  wordpress:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: mbstring, curl, openssl, pdo_sqlite
+          coverage: none
+      - run: npm ci
+      - run: npm run build
+      - name: PHP host module dependencies (bundled into the plugin zip)
+        working-directory: host-modules/php
+        run: composer install --no-interaction --no-progress --no-dev
+      - name: Plugin PHP tests
+        run: |
+          for t in test-jwt test-hooks test-site; do
+            echo "--- $t"
+            php host-adapters/wordpress/handofclient/tests/$t.php
+          done
+      - name: Distributable zip has one top-level handofclient/ folder, the bundled module and no tests
+        run: |
+          node host-adapters/wordpress/build.mjs
+          zip=$(ls host-adapters/wordpress/dist/handofclient-*.zip)
+          unzip -Z1 "$zip" > entries.txt
+          if grep -v '^handofclient/' entries.txt; then echo "entries outside handofclient/"; exit 1; fi
+          if grep -q '^handofclient/tests/' entries.txt; then echo "tests shipped in the zip"; exit 1; fi
+          for want in handofclient/handofclient.php handofclient/assets/js/embed.global.js; do
+            grep -qx "$want" entries.txt || { echo "missing $want"; exit 1; }
+          done
+          grep -q '^handofclient/lib/host/' entries.txt || { echo "PHP host module not bundled"; exit 1; }

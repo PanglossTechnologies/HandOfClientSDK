@@ -1,0 +1,4 @@
+# Generated code must be byte-identical wherever it is checked out (CI regenerates gen/ and fails on any diff), and the
+# proto sources it is generated from must not pick up CRLF on Windows checkouts.
+*.proto text eol=lf
+gen/** text eol=lf

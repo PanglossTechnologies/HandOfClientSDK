@@ -17,7 +17,7 @@
 // 5.1 writes entry names with backslash separators, which the ZIP spec forbids (4.4.17.1 requires
 // forward slashes) and which some unzip implementations turn into files literally named
 // "handofclient\includes\class-hoc-rest.php" in a flat directory. bsdtar ships in System32 on
-// Windows 10+ and as the system tar on macOS, and writes correct entry names on both.
+// Windows 10+ and as the system tar on macOS, and writes correct entry names on both. Linux uses `zip`.
 import { cp, mkdir, readFile, rm, access } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -92,8 +92,14 @@ await rm(zipPath, { force: true });
 // WordPress unzips the archive straight into wp-content/plugins, so it must contain a single
 // top-level "handofclient/" directory - archiving the directory's *contents* installs a plugin with
 // no folder of its own and breaks every plugin_dir_path() call in it.
-const tarBin = process.platform === "win32" ? "C:\\Windows\\System32\\tar.exe" : "tar";
-await execFileAsync(tarBin, ["-a", "-c", "-f", zipPath, "-C", stagingDir, "handofclient"]);
+// GNU tar (Linux) cannot write zip archives; there the standard `zip` tool does the same job.
+if (process.platform === "win32") {
+  await execFileAsync("C:\\Windows\\System32\\tar.exe", ["-a", "-c", "-f", zipPath, "-C", stagingDir, "handofclient"]);
+} else if (process.platform === "darwin") {
+  await execFileAsync("tar", ["-a", "-c", "-f", zipPath, "-C", stagingDir, "handofclient"]);
+} else {
+  await execFileAsync("zip", ["-q", "-r", zipPath, "handofclient"], { cwd: stagingDir });
+}
 
 await rm(stagingDir, { recursive: true, force: true });
 
