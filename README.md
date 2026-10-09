@@ -51,6 +51,23 @@ You get back, per environment:
 3. **Give plugins your data.** Put your API host on the tenant's egress allowlist and store its
    credential in the vault (`PUT /host/v1/secrets`). Plugins send `Authorization: Bearer {{secret:name}}`;
    the proxy substitutes it server-side.
+4. **Activate the package for your tenant** - a platform-side step, not something `mount()` can do. Your
+   page's origin must also be a *registered origin* for your `hostId`. Both are normally done for you when
+   support provisions access (step "Get access" above collects your site URL for this), or you can run it
+   yourself:
+   ```
+   dotnet run --project tools/sample-bootstrap/HandOfClient.SampleBootstrap -- register-host \
+     --api-base-url <platform> --super-admin-key <key> --host-id <hostId> --display-name "<name>" \
+     --origins "https://<your-site>"
+
+   dotnet run --project tools/sample-bootstrap/HandOfClient.SampleBootstrap -- activate \
+     --api-base-url <platform> --host-api-key <key> --host-id <hostId> --tenant-id <tenantId> \
+     --package-id handofclient/hello-world --slot-id main-panel --version <version>
+   ```
+   Symptoms if you skip this: your token endpoint's call to `/host/v1/embed-token` returns 412 if the
+   package isn't activated for the tenant, and if the page's own origin isn't registered the browser
+   refuses to frame the bundle - the mount point just stays an empty box with no error. This is the single
+   most common first-run failure.
 
 Minimal host page (replace the `<...>` values with what you received; serve it with your token endpoint
 at `hoc/token`):
