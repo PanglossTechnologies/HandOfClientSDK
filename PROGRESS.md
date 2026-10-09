@@ -53,3 +53,17 @@ fidelity check).
 Decisions: `data-*` values, `alt`/`aria-*` text and non-viewport `meta` are redacted too; password/file values and scripts are
 never captured even with `redact:false`; a skipped subtree leaves an empty same-size element so layout holds. Not captured:
 iframe contents, shadow DOM, canvas pixels.
+
+## 2026-10-09 CL-14 browser components
+
+`<hoc-request-feature>`, `<hoc-my-features>`, `<hoc-feature-admin>` (plus `HandOfClient.requestFeature/myFeatures/featureAdmin`
+and `HandOfClient.features.*`, `createFeaturesApi`, `defineComponents`) in `sdk/embed-js/src/host/{features.ts,components/}`;
+shadow-DOM, `--hoc-*` themed, documented in `docs/components.md`. Tested against a new in-memory fake of `hoc/api/*`
+(`test-support/fake-site.mjs`, every documented status/error) with real-browser suites at desktop + iPhone
+(`test/components.test.mjs`) and a Node suite for the API client (`test/features-api.test.mjs`).
+
+Decisions: elements wait for DOMContentLoaded before the first call so an inline `configure()` after the script tag is seen;
+roll back for everyone has an inline confirm step; admin feature list is just `GET features` (contract has no "all features").
+
+Known gaps: the fake lives in embed-js test-support, CL-16 may promote/replace it as the shared conformance fake; no
+pagination for `GET features`/versions (contract has none); user names for already-shared ids show as ids until the picker has seen them.

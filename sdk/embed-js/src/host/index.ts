@@ -5,3 +5,8 @@ export type { InjectContext } from "./inject.js";
 export { captureSnapshot, KEEP_ATTRIBUTE, SKIP_ATTRIBUTE, type PageSnapshot, type SnapshotOptions } from "./snapshot.js";
 export { mount,type Mounted, type MountOptions } from "./mount.js";
 export type { TokenEndpointResponse } from "./token.js";
+export * from "./features.js";
+export { defineComponents } from "./components/elements.js";
+export { requestFeature, type ComponentHandle, type RequestFeatureOptions } from "./components/requestFeature.js";
+export { myFeatures, type MyFeaturesOptions } from "./components/myFeatures.js";
+export { featureAdmin, type FeatureAdminOptions } from "./components/featureAdmin.js";
