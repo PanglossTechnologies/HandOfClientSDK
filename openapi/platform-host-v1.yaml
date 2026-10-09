@@ -411,6 +411,50 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+  /host/v1/webhook-deliveries:
+    get:
+      tags: [Builds]
+      operationId: listWebhookDeliveries
+      summary: Read the webhook delivery log.
+      description: |
+        What the platform queued for this host's `webhookUrl`, whether each event arrived, and every attempt
+        (HTTP status, error, duration). Use it to find out why a build update never reached the site.
+        Only the calling host's own events are returned. Newest first. Finished entries are kept 30 days.
+        Hosts without a `webhookUrl` have an empty log.
+      parameters:
+        - name: buildId
+          in: query
+          required: false
+          description: Only events of these builds. Repeat for several (`?buildId=a&buildId=b`). Another host's build id returns nothing.
+          schema: { type: array, items: { type: string } }
+          style: form
+          explode: true
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [Pending, Delivered, Failed] }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+      responses:
+        "200":
+          description: The matching deliveries.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deliveries]
+                properties:
+                  deliveries:
+                    type: array
+                    items: { $ref: "#/components/schemas/WebhookDelivery" }
+        "400":
+          description: Unknown `status` (`invalid_request`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /host/v1/data-sources:
     put:
       tags: [Tenant configuration]
@@ -1092,6 +1136,39 @@ components:
         taskId: { type: [string, "null"], description: "Build task id once created; null until then." }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+    WebhookDelivery:
+      type: object
+      required: [eventId, buildId, type, status, attemptCount, createdAt, expiresAt, payload, attempts]
+      properties:
+        eventId: { type: string, description: "The `eventId` in the delivered body; stable across retries." }
+        buildId: { type: string }
+        type: { type: string, enum: [build.status, build.version] }
+        status:
+          type: string
+          enum: [Pending, Delivered, Failed]
+          description: "`Pending` is still being retried; `Failed` was given up on 24 hours after it was created."
+        attemptCount: { type: integer }
+        createdAt: { type: string, format: date-time }
+        nextAttemptAt: { type: [string, "null"], format: date-time, description: "When the next retry is due; pending events only." }
+        completedAt: { type: [string, "null"], format: date-time }
+        expiresAt: { type: string, format: date-time, description: "No attempt is made after this." }
+        lastError: { type: [string, "null"] }
+        payload:
+          type: object
+          additionalProperties: true
+          description: The event's own fields. The delivered body adds `eventId` and a per-attempt `sentAt`.
+        attempts:
+          type: array
+          items:
+            type: object
+            required: [attemptNumber, attemptedAt, succeeded, durationMs]
+            properties:
+              attemptNumber: { type: integer }
+              attemptedAt: { type: string, format: date-time }
+              httpStatus: { type: [integer, "null"], description: "Null when no response arrived (timeout, connection refused)." }
+              succeeded: { type: boolean }
+              error: { type: [string, "null"] }
+              durationMs: { type: integer }
     EgressAllowlist:
       type: object
       required: [tenantId, allowedHosts]
