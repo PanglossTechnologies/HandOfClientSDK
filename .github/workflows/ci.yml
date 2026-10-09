@@ -7,6 +7,7 @@ name: ci
 #   dotnet       C# client, bootstrap tool and the .NET host sample build; the sample runs and is smoke-tested in a browser
 #   flask        the Flask host sample: pytest + a Chrome run (desktop and iPhone) of request -> built -> requester only
 #   wordpress    the WordPress plugin's standalone PHP tests and the distributable zip
+#   wordpress-conformance  the live WordPress checks: conformance suite + desktop/iPhone browser flow
 # Covered by their own workflows (path-filtered, and they hold the publish jobs):
 #   node-host-module, python-host-module, php-host-module   unit tests + the conformance suite for every host module and
 #                                                           framework adapter (Express, Fastify, node:http, Flask, Django,
@@ -143,3 +144,33 @@ jobs:
             grep -qx "$want" entries.txt || { echo "missing $want"; exit 1; }
           done
           grep -q '^handofclient/lib/host/' entries.txt || { echo "PHP host module not bundled"; exit 1; }
+
+  # The live WordPress checks: a real WordPress (SQLite drop-in) served by PHP's built-in server, the shared
+  # conformance suite against the plugin, and the real-browser request -> built -> visible flow at desktop and
+  # iPhone sizes. PHP comes from setup-php (the harness uses `php` from PATH off Windows; HOC_PHP overrides).
+  wordpress-conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: mbstring, curl, openssl, pdo_sqlite, intl, zip, gd, exif
+          coverage: none
+      - run: npm ci
+      - run: npm run build
+      - name: PHP host module dependencies
+        working-directory: host-modules/php
+        run: composer install --no-interaction --no-progress --no-dev
+      - name: Build the WordPress harness (downloads WordPress, the SQLite drop-in, wp-cli)
+        run: node host-adapters/wordpress/devharness/setup.mjs
+      - name: Conformance suite against the plugin
+        run: node host-adapters/wordpress/conformance/run-conformance.mjs --reporter dot
+      - name: Plugin assets (embed.global.js into the plugin)
+        run: node host-adapters/wordpress/build.mjs
+      - name: Browser flow (desktop and iPhone)
+        run: node --test host-adapters/wordpress/conformance/browser.test.mjs

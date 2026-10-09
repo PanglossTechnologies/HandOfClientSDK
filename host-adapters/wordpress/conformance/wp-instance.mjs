@@ -11,11 +11,12 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolvePhp } from "../devharness/php-path.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "..", "..", "..");
 const wpLocal = join(repoRoot, ".wp-local");
-const php = join(wpLocal, "php", "php.exe");
+const { php, bundled: bundledPhp } = resolvePhp(wpLocal);
 const wpCli = join(wpLocal, "wp-cli.phar");
 const wpRoot = join(wpLocal, "wordpress");
 const router = join(wpLocal, "router.php");
@@ -37,7 +38,7 @@ export const freePort = () =>
  * `conformance`: install the conformance profile mu-plugin for the lifetime of the instance.
  */
 export async function startWordPress(options = {}) {
-  for (const needed of [php, wpCli, router, join(wpRoot, "index.php")]) {
+  for (const needed of [...(bundledPhp ? [php] : []), wpCli, router, join(wpRoot, "index.php")]) {
     if (!existsSync(needed)) throw new Error(`${needed} is missing; run: node host-adapters/wordpress/devharness/setup.mjs`);
   }
   const tmp = mkdtempSync(join(tmpdir(), "hoc-wp-"));

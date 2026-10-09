@@ -223,3 +223,7 @@ Findings: `HocClient` rejects an `http://` base address (secure gRPC channel cre
 ## 2026-10-09 HOCSDK-6 on-behalf-of-host
 
 TS client `createHocClient` gained `onBehalfOfHost` (sends `x-hoc-host` on every call, mirrors the C# client); `hoc-publish` uses it and also sends the header on the bundle upload, with `--on-behalf-of-host` as the flag name (`--host-id` kept as an alias). Two new CLI tests (35 total). HOCSDK-4 (inject handoff in `hoc.init`) and HOCSDK-5 (Flask sample on the Python module) were already delivered by CL-15 and CL-21 and are closed.
+
+## 2026-10-09 HOCSDK-10 WordPress harness off Windows, CI job
+
+`devharness/php-path.mjs` picks the PHP: the downloaded `.wp-local/php` build on Windows, otherwise `php` from PATH (or `HOC_PHP`); setup.mjs skips the PHP/cacert download, php.ini and openssl.cnf in that case and symlinks the plugin instead of `mklink /J`; wp-instance.mjs uses the same resolver. New `wordpress-conformance` job in ci.yml runs setup, run-conformance and browser.test. Windows re-verified (29 PHP tests, conformance PASS, browser 6/6). Known gap: the Linux run is unproven until the first Actions run.
