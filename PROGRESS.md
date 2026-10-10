@@ -239,3 +239,6 @@ Debugging detail came back as machine-readable fields, not text: hoc/api errors 
 
 ## 2026-10-09 HOCSDK-9 hoc-publish uses the public bundle route
 hoc-publish uploads to POST {apiBaseUrl}/host/v1/bundles (documented in platform-host-v1.yaml); the two lint allowlist entries are gone. Needs a new hoc-publish release to reach users (HOCSDK-7).
+
+## 2026-10-09 HOCSDK-2 NuGet job in the SDK release workflow
+release.yml gains a `nuget` job (pack HandOfClient.Client at the tag version, push with secret NUGET_API_KEY). The HOC repo release.yml still publishes the same packages and is not removed yet: delete it only after NUGET_API_KEY is set and a tag run succeeds here.

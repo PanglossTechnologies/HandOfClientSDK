@@ -48,3 +48,28 @@ jobs:
       - run: npm run build
       - run: |
           npm publish -w @handofclient/gen-ts -w @handofclient/api -w @handofclient/embed-js --provenance --access public
+
+  # HOCSDK-2: NuGet HandOfClient.Client, versioned from the tag (the csproj leaves PackageVersion to this job).
+  # Needs the repo secret NUGET_API_KEY (nuget.org key scoped to HandOfClient.Client). Without it the push
+  # step fails loudly rather than skipping.
+  nuget:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Pack HandOfClient.Client
+        run: >
+          dotnet pack clients/csharp/HandOfClient.Client/HandOfClient.Client.csproj
+          -c Release -p:PackageVersion="${GITHUB_REF_NAME#v}" -o dist/nuget
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nuget-package
+          path: dist/nuget/*.nupkg
+      - name: Push to nuget.org
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: dotnet nuget push "dist/nuget/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
