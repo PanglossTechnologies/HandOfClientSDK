@@ -10,6 +10,9 @@
     <!-- PackageVersion is supplied at pack time (-p:PackageVersion=<tag>),
          not hardcoded here - the git tag is the one source of truth for "what version is this",
          same convention as the npm packages. -->
+    <Authors>PanglossTechnologies</Authors>
+    <Company>PanglossTechnologies</Company>
+    <Copyright>Copyright (c) PanglossTechnologies</Copyright>
     <PackageProjectUrl>https://github.com/PanglossTechnologies/HandOfClientSDK</PackageProjectUrl>
     <RepositoryUrl>https://github.com/PanglossTechnologies/HandOfClientSDK.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
