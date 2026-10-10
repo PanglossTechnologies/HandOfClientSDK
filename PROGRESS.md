@@ -230,3 +230,6 @@ TS client `createHocClient` gained `onBehalfOfHost` (sends `x-hoc-host` on every
 
 ## 2026-10-09
 First Linux Actions run: WordPress harness now unzips with `unzip` off Windows (GNU tar cannot read zip); Laravel 11 dropped from the PHP matrix because composer blocks every installable 11.x on security advisories (supported: 12, 13).
+
+## 2026-10-09 HOCSDK-3 unified error + webhook shapes
+Every /host/v1 error is now `{error: "<code>"}` only (no message, no human text; LegacyError removed). All webhook/relay bodies use `type` (activation.changed, hook.fired); `event` is gone. Breaking, pre-release, no compat shim. Platform changed in HandOfClient repo; OpenAPI, fake platform and tests updated here. Site-side hoc/api errors still carry `message` (separate surface, unchanged).

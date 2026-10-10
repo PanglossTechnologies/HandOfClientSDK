@@ -596,9 +596,8 @@ paths:
         * `build.version`: record the new version of feature `featureRef` (create the feature if this is
           its first), then assign it to the requester if the build was its first. `build.version` is
           followed by `build.status` `Success`.
-        * `activation.changed`: legacy event for tenant activations; sites that only use the
-          customization loop may ignore it with a 200. Its body uses `event` instead of `type` and has no
-          `sentAt`/`eventId`.
+        * `activation.changed`: event for tenant activations; sites that only use the
+          customization loop may ignore it with a 200. It has no `sentAt`/`eventId`.
         * Unknown event types: answer 200 and ignore (new events are added without a version bump).
       security:
         - webhookSignature: []
@@ -982,10 +981,10 @@ components:
         mode: { $ref: "#/components/schemas/RenderingMode" }
     ActivationChangedEvent:
       type: object
-      description: Legacy event. Uses `event`, not `type`, and carries no `sentAt` / `eventId`.
-      required: [event, reason, hostId, tenantId, packageId, slotId, version, enabled, pinned, activatedAt]
+      description: Tenant activation event. Carries no `sentAt` / `eventId`.
+      required: [type, reason, hostId, tenantId, packageId, slotId, version, enabled, pinned, activatedAt]
       properties:
-        event: { type: string, const: activation.changed }
+        type: { type: string, const: activation.changed }
         reason: { type: string }
         hostId: { type: string }
         tenantId: { type: string }

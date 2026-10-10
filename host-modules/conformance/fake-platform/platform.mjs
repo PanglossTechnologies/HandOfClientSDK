@@ -42,7 +42,7 @@ export function createFakePlatform(options = {}) {
     const raw = rawBody ?? JSON.stringify(body);
     const headers = { "content-type": "application/json" };
     if (!omitSignature) headers["x-handofclient-signature"] = signature ?? signBody(secret ?? cfg.webhookSecret, raw);
-    if (!omitEvent) headers["x-handofclient-event"] = event ?? body?.type ?? body?.event ?? "build.status";
+    if (!omitEvent) headers["x-handofclient-event"] = event ?? body?.type ?? "build.status";
     const target = url ?? cfg.webhookUrl;
     if (!target) throw new Error("fake platform has no webhookUrl configured");
     const res = await fetch(target, { method: "POST", headers, body: raw });
@@ -120,7 +120,7 @@ export function createFakePlatform(options = {}) {
     const path = url.pathname;
     if (req.headers["x-api-key"] !== cfg.apiKey) return record(401), sendJson(res, 401, undefined);
     let body = null;
-    if (raw.length) { try { body = JSON.parse(raw.toString("utf8")); } catch { return record(400), sendJson(res, 400, { error: "invalid_request", message: "malformed JSON" }); } }
+    if (raw.length) { try { body = JSON.parse(raw.toString("utf8")); } catch { return record(400), sendJson(res, 400, { error: "invalid_request" }); } }
     const reply = (status, payload) => { record(status); sendJson(res, status, payload); };
     const legacy = (status, msg) => reply(status, { error: msg });
 
@@ -233,7 +233,7 @@ export function createFakePlatform(options = {}) {
       await handleHost(req, res, url, raw, record);
     } catch (e) {
       console.error("[fake-platform]", e);
-      if (!res.headersSent) sendJson(res, 500, { error: "fake_platform_error", message: String(e.message) });
+      if (!res.headersSent) sendJson(res, 500, { error: "fake_platform_error" });
     }
   });
 

@@ -36,13 +36,15 @@ info:
 
     ## Errors
 
-    Two shapes exist today, depending on the endpoint (both are stable):
-
-    * `LegacyError`: `{ "error": "<human text>" }` for the original endpoints (`embed-token`,
-      `activations`, `active-version`, `egress-allowlist`, `secrets`, `hook-event`,
-      `customization-request`).
-    * `Error`: `{ "error": "<code>", "message": "<human text>" }` for the `builds` endpoints and
-      anything added after them. Always branch on `error` for these.
+    Every `/host/v1` error is `{ "error": "<code>" }`: a stable, lowercase snake_case code and nothing
+    else. Branch on `error`; there is no human-readable text on the wire. Codes in use:
+    `invalid_request`, `activation_not_found`, `activation_inactive`, `version_not_found`,
+    `version_withdrawn`, `slot_not_declared`, `package_not_found`, `package_not_owned`,
+    `hook_not_declared`, `webhook_url_invalid`, `egress_not_allowed`, `egress_denied`,
+    `invalid_hostnames`, `invalid_secret_name`, `invalid_secret_value`, `secret_too_large`,
+    `secret_not_found`, `request_not_recorded`, `build_not_found`, `build_not_recorded`,
+    `build_not_awaiting_reply`, `unknown_secret`, `blocked_base_url`. An unauthenticated call is a bare
+    `401`.
 
     ## Embed token JWT
 
@@ -221,13 +223,13 @@ paths:
                   version: { $ref: "#/components/schemas/PackageVersion" }
                   slot: { $ref: "#/components/schemas/SlotDecl" }
                   enabled: { type: boolean }
-        "400": { $ref: "#/components/responses/LegacyBadRequest" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404":
           description: No activation, the active version is gone, or the slot is not in its manifest.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/LegacyError" }
+              schema: { $ref: "#/components/schemas/Error" }
   /host/v1/embed-token:
     post:
       tags: [Embed tokens]
@@ -266,28 +268,28 @@ paths:
           description: Missing field, or (with `version`) the slot is not declared in that version's manifest.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/LegacyError" }
+              schema: { $ref: "#/components/schemas/Error" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403":
           description: The package was not published by this host.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/LegacyError" }
+              schema: { $ref: "#/components/schemas/Error" }
         "404":
           description: Unknown package or version.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/LegacyError" }
+              schema: { $ref: "#/components/schemas/Error" }
         "409":
           description: The version has been withdrawn.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/LegacyError" }
+              schema: { $ref: "#/components/schemas/Error" }
         "412":
           description: No active, enabled activation for this tenant/slot (only when `version` is omitted).
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/LegacyError" }
+              schema: { $ref: "#/components/schemas/Error" }
   /host/v1/builds:
     post:
       tags: [Builds]
@@ -335,7 +337,7 @@ paths:
                 properties:
                   buildId: { type: string, description: "Opaque 32-character hex id." }
         "400":
-          description: Validation failed (`invalid_request`; `message` names the field).
+          description: Validation failed (`invalid_request`).
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -527,7 +529,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/EgressAllowlist" }
-        "400": { $ref: "#/components/responses/LegacyBadRequest" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
     put:
       tags: [Tenant configuration]
@@ -556,10 +558,10 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/EgressAllowlist" }
         "400":
-          description: Missing `tenantId`, or entries that are not valid hostnames (named in the message).
+          description: Missing `tenantId`, or entries that are not valid hostnames (`invalid_hostnames`).
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/LegacyError" }
+              schema: { $ref: "#/components/schemas/Error" }
         "401": { $ref: "#/components/responses/Unauthorized" }
   /host/v1/secrets:
     get:
@@ -588,7 +590,7 @@ paths:
                         name: { type: string }
                         updatedAt: { type: string, format: date-time }
                         updatedBy: { type: [string, "null"] }
-        "400": { $ref: "#/components/responses/LegacyBadRequest" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
     put:
       tags: [Tenant configuration]
@@ -625,7 +627,7 @@ paths:
           description: Missing `tenantId`, bad name, empty value (use DELETE) or value over 8192 bytes.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/LegacyError" }
+              schema: { $ref: "#/components/schemas/Error" }
         "401": { $ref: "#/components/responses/Unauthorized" }
     delete:
       tags: [Tenant configuration]
@@ -646,13 +648,13 @@ paths:
                   tenantId: { type: string }
                   name: { type: string }
                   deleted: { type: boolean, const: true }
-        "400": { $ref: "#/components/responses/LegacyBadRequest" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404":
           description: No such secret.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/LegacyError" }
+              schema: { $ref: "#/components/schemas/Error" }
   /host/v1/hook-event:
     post:
       tags: [Hooks]
@@ -666,7 +668,7 @@ paths:
         refusal is audited): this endpoint is not an open relay.
 
         Delivery is at-most-once and unretried, with a 5 second timeout. The relayed request is a `POST`
-        of JSON `{ event: "hook.fired", hook, hostId, tenantId, packageId, slotId, version, firedAt, args }`
+        of JSON `{ type: "hook.fired", hook, hostId, tenantId, packageId, slotId, version, firedAt, args }`
         with headers `X-HandOfClient-Event: hook.fired`, `X-HandOfClient-Hook: <hook>` and, when the host
         has a webhook secret, `X-HandOfClient-Signature: sha256=<hex HMAC-SHA256 of the raw body>`
         (same signing as webhooks, `site-hoc-api.yaml`).
@@ -701,28 +703,28 @@ paths:
           description: A required field is missing.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/LegacyError" }
+              schema: { $ref: "#/components/schemas/Error" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403":
           description: Destination not in both allowlists, or it resolves to a disallowed address.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/LegacyError" }
+              schema: { $ref: "#/components/schemas/Error" }
         "404":
           description: The package declares no action hook with that name.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/LegacyError" }
+              schema: { $ref: "#/components/schemas/Error" }
         "412":
           description: No active, enabled activation for this tenant/slot, or its version is missing.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/LegacyError" }
+              schema: { $ref: "#/components/schemas/Error" }
         "422":
           description: The declared `webhookUrl` is not an absolute https:// URL.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/LegacyError" }
+              schema: { $ref: "#/components/schemas/Error" }
   /host/v1/customization-request:
     post:
       tags: [Legacy]
@@ -759,7 +761,7 @@ paths:
           description: Missing tenant or invalid text.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/LegacyError" }
+              schema: { $ref: "#/components/schemas/Error" }
         "401": { $ref: "#/components/responses/Unauthorized" }
     get:
       tags: [Legacy]
@@ -790,7 +792,7 @@ paths:
                         atUtc: { type: string, format: date-time }
                         status: { type: string }
                         taskId: { type: [string, "null"] }
-        "400": { $ref: "#/components/responses/LegacyBadRequest" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
   /embed/{packageIdB64}/{version}/{path}:
     get:
@@ -991,27 +993,19 @@ components:
   responses:
     Unauthorized:
       description: Missing or unknown `x-api-key`. Empty body.
-    LegacyBadRequest:
+    BadRequest:
       description: A required parameter is missing.
       content:
         application/json:
-          schema: { $ref: "#/components/schemas/LegacyError" }
+          schema: { $ref: "#/components/schemas/Error" }
   schemas:
-    LegacyError:
+    Error:
       type: object
       required: [error]
       properties:
-        error: { type: string, description: "Human-readable detail. Do not branch on it." }
-    Error:
-      type: object
-      required: [error, message]
-      properties:
         error:
           type: string
-          description: |
-            Stable code. Currently `invalid_request`, `build_not_found`, `build_not_recorded`,
-            `build_not_awaiting_reply`.
-        message: { type: string }
+          description: Stable lowercase snake_case code. See "Errors" above for the list.
     PageResponse:
       type: object
       required: [nextPageToken]

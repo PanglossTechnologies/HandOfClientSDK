@@ -110,7 +110,7 @@ test("unknown event types and the legacy activation.changed are acknowledged wit
   const unknown = await platform.deliver({ body: { type: "something.new", eventId: uid("evt-"), sentAt: new Date().toISOString() }, event: "something.new" });
   assert.equal(unknown.status, 200);
   const legacy = await platform.deliver({
-    body: { event: "activation.changed", reason: "activated", hostId: profile.hostId(), tenantId: profile.tenantId(), packageId: "p/x", slotId: "main", version: "1.0.0", enabled: true, pinned: false, activatedAt: new Date().toISOString() },
+    body: { type: "activation.changed", reason: "activated", hostId: profile.hostId(), tenantId: profile.tenantId(), packageId: "p/x", slotId: "main", version: "1.0.0", enabled: true, pinned: false, activatedAt: new Date().toISOString() },
     event: "activation.changed",
   });
   assert.equal(legacy.status, 200);

@@ -328,7 +328,7 @@ final class CoreTest extends TestCase
         $h = $this->host;
         foreach ([
             ['type' => 'something.new'],
-            ['event' => 'activation.changed'],
+            ['type' => 'activation.changed'],
             ['type' => 'build.status', 'requestRef' => 'nope', 'status' => 'Success'],
             ['type' => 'build.status', 'requestRef' => 5, 'status' => 'Success'],
             ['type' => 'build.version', 'requestRef' => 'nope', 'featureRef' => 'f', 'version' => '1'],

@@ -148,7 +148,7 @@ def test_webhook_rejections_change_nothing(host):
 
 
 def test_webhook_unknown_and_malformed_events_are_acknowledged_or_400(host):
-    for ev in ({"type": "something.new"}, {"event": "activation.changed"}, {"type": "build.status", "requestRef": "nope", "status": "Success"},
+    for ev in ({"type": "something.new"}, {"type": "activation.changed"}, {"type": "build.status", "requestRef": "nope", "status": "Success"},
                {"type": "build.version", "requestRef": "nope", "featureRef": "f", "version": "1"}, {"type": "build.version"}):
         assert host.event(**ev).status == 200
     raw = b"[1,2]"
