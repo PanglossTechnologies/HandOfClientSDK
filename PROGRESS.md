@@ -242,3 +242,6 @@ hoc-publish uploads to POST {apiBaseUrl}/host/v1/bundles (documented in platform
 
 ## 2026-10-09 HOCSDK-2 NuGet job in the SDK release workflow
 release.yml gains a `nuget` job (pack HandOfClient.Client at the tag version, push with secret NUGET_API_KEY). The HOC repo release.yml still publishes the same packages and is not removed yet: delete it only after NUGET_API_KEY is set and a tag run succeeds here.
+
+## 2026-10-10 HOCSDK-2 npm release takes its version from the tag
+release.yml's npm job runs tools/ci/set-npm-release-version.mjs before building: a tag vX.Y.Z stamps X.Y.Z into gen-ts, api and embed-js (dependencies between them pinned to the same exact version; never committed), a malformed tag fails the job, a prerelease tag publishes under the npm dist-tag next. Verified locally with v0.2.0-test (npm publish --dry-run, packed manifests) and actionlint. publisher-cli stays private.

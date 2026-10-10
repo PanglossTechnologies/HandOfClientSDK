@@ -32,6 +32,8 @@ jobs:
 
   # npm publish via Trusted Publishing (OIDC, no stored token). Needs a trusted publisher configured on
   # npmjs.com for each package: repo PanglossTechnologies/HandOfClientSDK, workflow release.yml.
+  # Versioned from the tag like the nuget job: tag v0.2.0 publishes all three at 0.2.0 (their dependencies on
+  # each other pinned to 0.2.0); a prerelease tag (v0.2.0-rc.1) publishes under the "next" dist-tag.
   npm:
     runs-on: ubuntu-latest
     permissions:
@@ -45,9 +47,14 @@ jobs:
           registry-url: https://registry.npmjs.org
       - run: npm install -g npm@latest
       - run: npm ci
+      - name: Set package versions from the tag (fails on a malformed tag)
+        id: version
+        run: node tools/ci/set-npm-release-version.mjs "$GITHUB_REF_NAME"
       - run: npm run build
-      - run: |
-          npm publish -w @handofclient/gen-ts -w @handofclient/api -w @handofclient/embed-js --provenance --access public
+      - name: Publish ${{ steps.version.outputs.version }}
+        run: >
+          npm publish -w @handofclient/gen-ts -w @handofclient/api -w @handofclient/embed-js
+          --provenance --access public --tag "${{ steps.version.outputs.dist_tag }}"
 
   # HOCSDK-2: NuGet HandOfClient.Client, versioned from the tag (the csproj leaves PackageVersion to this job).
   # Needs the repo secret NUGET_API_KEY (nuget.org key scoped to HandOfClient.Client). Without it the push
