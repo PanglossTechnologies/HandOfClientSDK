@@ -36,8 +36,16 @@ info:
 
     ## Errors
 
-    Every `/host/v1` error is `{ "error": "<code>" }`: a stable, lowercase snake_case code and nothing
-    else. Branch on `error`; there is no human-readable text on the wire. Codes in use:
+    Every `/host/v1` error is `{ "error": "<code>" }` plus, where it helps debugging, machine-readable
+    detail: `{ "error": "invalid_request", "field": "tenantId", "reason": "required" }`. Branch on `error`;
+    there is no human-readable text on the wire. `field` is the request field (a dotted/indexed path such as
+    `dataSources[2].baseUrl`) or the offending resource kind (`activation`, `packageId`, `version`...);
+    `reason` is one of a closed set: `required`, `too_long`, `too_many`, `wrong_type`, `invalid_format`,
+    `invalid_value`, `invalid_hostname`, `duplicate`, `blocked`, `unknown_secret`, `not_found`,
+    `not_declared`, `not_owned`, `not_allowlisted`, `withdrawn`, `inactive`, or an egress denial reason.
+    `values` lists the offending values (rejected hostnames, the unknown id) or the allowed ones; `limit`
+    is the bound for `too_long` / `too_many`. All four are optional; a client must ignore ones it does not
+    know. Codes in use:
     `invalid_request`, `activation_not_found`, `activation_inactive`, `version_not_found`,
     `version_withdrawn`, `slot_not_declared`, `package_not_found`, `package_not_owned`,
     `hook_not_declared`, `webhook_url_invalid`, `egress_not_allowed`, `egress_denied`,
@@ -1006,6 +1014,19 @@ components:
         error:
           type: string
           description: Stable lowercase snake_case code. See "Errors" above for the list.
+        field:
+          type: string
+          description: The request field (dotted/indexed path) or resource kind the error is about.
+        reason:
+          type: string
+          description: Why (closed snake_case set, see "Errors" above). Present whenever `field` is.
+        values:
+          type: array
+          items: { type: string }
+          description: The offending values (rejected hostnames, an unknown id) or the allowed ones.
+        limit:
+          type: integer
+          description: The bound that was exceeded, for `too_long` / `too_many`.
     PageResponse:
       type: object
       required: [nextPageToken]

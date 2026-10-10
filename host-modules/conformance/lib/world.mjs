@@ -13,10 +13,20 @@ export const DEFAULT_SETTINGS = Object.freeze({
 });
 
 /** Assert an error response: status, stable code, and a human message. */
-export function expectError(res, status, code) {
+export function expectError(res, status, code, detail = undefined) {
   assert.equal(res.status, status, `expected ${status} ${code}, got ${res.status}: ${res.text}`);
   assert.equal(res.body?.error, code, `expected error code ${code}, got ${res.text}`);
   assert.equal(typeof res.body?.message, "string", "error responses carry a human message");
+  if (detail !== undefined) {
+    // Structured debugging detail: {field, reason, values?, limit?} (platform: {...} is checked by expectPlatform).
+    for (const [k, v] of Object.entries(detail)) assert.deepEqual(res.body?.[k], v, `error ${k}: ${res.text}`);
+  }
+}
+
+/** Assert the `platform` block of a platform_unavailable error: what the platform answered (status 0 = unreachable). */
+export function expectPlatform(res, expected) {
+  assert.equal(res.body?.error, "platform_unavailable", res.text);
+  for (const [k, v] of Object.entries(expected)) assert.deepEqual(res.body?.platform?.[k], v, `platform.${k}: ${res.text}`);
 }
 
 export function expectOk(res, status = 200) {

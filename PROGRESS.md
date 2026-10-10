@@ -233,3 +233,6 @@ First Linux Actions run: WordPress harness now unzips with `unzip` off Windows (
 
 ## 2026-10-09 HOCSDK-3 unified error + webhook shapes
 Every /host/v1 error is now `{error: "<code>"}` only (no message, no human text; LegacyError removed). All webhook/relay bodies use `type` (activation.changed, hook.fired); `event` is gone. Breaking, pre-release, no compat shim. Platform changed in HandOfClient repo; OpenAPI, fake platform and tests updated here. Site-side hoc/api errors still carry `message` (separate surface, unchanged).
+
+## 2026-10-09 HOCSDK-3 follow-up: structured error detail
+Debugging detail came back as machine-readable fields, not text: hoc/api errors (node, python, php host modules, fake platform, reference host, embed-js FeaturesApiError.detail) keep `error`+`message` and add optional `field`/`reason`/`values`/`limit`, plus a `platform` block ({status, error, field, reason...}; status 0 = unreachable) when a platform call failed. /host/v1 errors carry the same field/reason/values/limit. Reason vocabulary is a closed snake_case set documented in both OpenAPI files; conformance suite file 08-error-detail pins it. PHP not run locally (no php here), CI covers it.

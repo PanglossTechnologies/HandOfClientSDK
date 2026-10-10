@@ -29,8 +29,17 @@ export function createReferenceHost(opts = {}) {
 
   // ---------- helpers ----------
   const send = (res, status, payload) => { res.writeHead(status, { "content-type": "application/json" }); res.end(payload === undefined ? "" : JSON.stringify(payload)); };
-  class HttpError extends Error { constructor(status, code, message) { super(message); Object.assign(this, { status, code }); } }
-  const fail = (status, code, message) => { throw new HttpError(status, code, message); };
+  class HttpError extends Error { constructor(status, code, message, extra) { super(message); Object.assign(this, { status, code, extra }); } }
+  // `detail` is {field, reason, values?, limit?}; `platform` is what the platform answered (see platformFailure).
+  const fail = (status, code, message, detail, platform) => { throw new HttpError(status, code, message, { ...detail, ...(platform ? { platform } : {}) }); };
+  const platformFailure = (out) => {
+    const b = out.body && typeof out.body === "object" ? out.body : {};
+    const o = { status: out.status };
+    for (const k of ["error", "field", "reason"]) if (typeof b[k] === "string") o[k] = b[k];
+    if (Array.isArray(b.values)) o.values = b.values.map(String);
+    if (Number.isInteger(b.limit)) o.limit = b.limit;
+    return o;
+  };
 
   function currentUser(req) {
     const m = new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]+)`).exec(req.headers.cookie ?? "");
@@ -78,25 +87,25 @@ export function createReferenceHost(opts = {}) {
 
   route("GET", "token", async ({ user, query, res }) => {
     const id = query.get("featureId");
-    if (!id) fail(400, "invalid_request", "featureId is required.");
+    if (!id) fail(400, "invalid_request", "featureId is required.", { field: "featureId", reason: "required" });
     const f = bug("token-no-visibility") ? state.features.get(id) : getVisible(id, user);
     if (!f) fail(404, "not_found", "No such feature.");
     if (!bug("token-no-visibility") && f.disabledFor.has(user.id)) fail(404, "not_found", "No such feature.");
     const userId = bug("user-from-query") && query.get("userId") ? query.get("userId") : user.id;
     const out = await platformCall("POST", "/host/v1/embed-token", { tenantId: cfg.tenantId, userId, packageId: f.packageId, version: versionOf(f, user), slotId: f.slotId });
-    if (out.status === 409) fail(409, "version_unavailable", "That version is no longer available.");
-    if (!out.ok) fail(502, "platform_unavailable", "The HandOfClient platform could not be reached.");
+    if (out.status === 409) fail(409, "version_unavailable", "That version is no longer available.", undefined, platformFailure(out));
+    if (!out.ok) fail(502, "platform_unavailable", "The HandOfClient platform could not be reached.", undefined, platformFailure(out));
     send(res, 200, { token: out.body.token, expiresAt: out.body.expiresAt, userId, displayName: user.name ?? null });
   });
 
   route("POST", "api/requests", async ({ user, body, res }) => {
-    if (typeof body?.text !== "string" || !body.text.trim()) fail(400, "invalid_request", "text is required.");
-    if (body.text.length > TEXT_MAX) fail(413, "payload_too_large", "The request text is too long.");
+    if (typeof body?.text !== "string" || !body.text.trim()) fail(400, "invalid_request", "text is required.", { field: "text", reason: "required" });
+    if (body.text.length > TEXT_MAX) fail(413, "payload_too_large", "The request text is too long.", { field: "text", reason: "too_long", limit: TEXT_MAX });
     if (body.snapshot != null) {
-      if (typeof body.snapshot !== "object" || Array.isArray(body.snapshot)) fail(400, "invalid_request", "snapshot must be an object.");
-      if (JSON.stringify(body.snapshot).length > SNAPSHOT_MAX) fail(413, "payload_too_large", "The page snapshot is too large.");
+      if (typeof body.snapshot !== "object" || Array.isArray(body.snapshot)) fail(400, "invalid_request", "snapshot must be an object.", { field: "snapshot", reason: "wrong_type" });
+      if (JSON.stringify(body.snapshot).length > SNAPSHOT_MAX) fail(413, "payload_too_large", "The page snapshot is too large.", { field: "snapshot", reason: "too_long", limit: SNAPSHOT_MAX });
     }
-    if (body.featureId != null && typeof body.featureId !== "string") fail(400, "invalid_request", "featureId must be a string.");
+    if (body.featureId != null && typeof body.featureId !== "string") fail(400, "invalid_request", "featureId must be a string.", { field: "featureId", reason: "wrong_type" });
     if (body.featureId != null) getVisible(body.featureId, user);
     const now = new Date().toISOString();
     const r = {
@@ -113,15 +122,15 @@ export function createReferenceHost(opts = {}) {
 
   route("GET", "api/requests", async ({ user, query, res }) => {
     const scope = query.get("scope") ?? "mine";
-    if (!["mine", "all"].includes(scope)) fail(400, "invalid_request", "scope must be mine or all.");
+    if (!["mine", "all"].includes(scope)) fail(400, "invalid_request", "scope must be mine or all.", { field: "scope", reason: "invalid_value", values: ["mine", "all"] });
     const statuses = query.getAll("status");
-    if (statuses.some((s) => !STATUSES.includes(s))) fail(400, "invalid_request", "Unknown status.");
+    if (statuses.some((s) => !STATUSES.includes(s))) fail(400, "invalid_request", "Unknown status.", { field: "status", reason: "invalid_value", values: [...STATUSES] });
     const limitRaw = query.get("limit");
     const limit = limitRaw === null ? 50 : Number(limitRaw);
-    if (!Number.isInteger(limit) || limit < 1 || limit > 200) fail(400, "invalid_request", "limit must be 1-200.");
+    if (!Number.isInteger(limit) || limit < 1 || limit > 200) fail(400, "invalid_request", "limit must be 1-200.", { field: "limit", reason: "out_of_range", limit: 200 });
     if (scope === "all" && !(state.settings.viewAllRequests === "everyone" || (state.settings.viewAllRequests === "admins" && isAdmin(user)))) fail(403, "forbidden", "You may not see everyone's requests.");
     let offset = 0;
-    if (query.get("cursor") != null) { offset = Number(Buffer.from(query.get("cursor"), "base64url").toString("utf8")); if (!Number.isInteger(offset) || offset < 0) fail(400, "invalid_request", "Bad cursor."); }
+    if (query.get("cursor") != null) { offset = Number(Buffer.from(query.get("cursor"), "base64url").toString("utf8")); if (!Number.isInteger(offset) || offset < 0) fail(400, "invalid_request", "Bad cursor.", { field: "cursor", reason: "invalid_format" }); }
     const all = state.requests.filter((r) => (scope === "all" || r.userId === user.id) && (!statuses.length || statuses.includes(r.status))).sort((a, b) => b.seq - a.seq);
     const page = all.slice(offset, offset + limit);
     send(res, 200, { requests: page.map(publicRequest), nextCursor: offset + limit < all.length ? Buffer.from(String(offset + limit)).toString("base64url") : null });
@@ -130,10 +139,11 @@ export function createReferenceHost(opts = {}) {
   route("POST", "api/requests/([^/]+)/reply", async ({ user, params, body, res }) => {
     const r = state.requests.find((x) => x.id === params[0]);
     if (!r || r.userId !== user.id) fail(404, "not_found", "No such request.");
-    if (typeof body?.text !== "string" || !body.text.trim() || body.text.length > TEXT_MAX) fail(400, "invalid_request", "text is required (max 20000 characters).");
-    if (r.status !== "NeedsInfo") fail(409, "not_awaiting_reply", "This request is not waiting for an answer.");
+    if (typeof body?.text !== "string" || !body.text.trim()) fail(400, "invalid_request", "text is required (max 20000 characters).", { field: "text", reason: "required" });
+    if (body.text.length > TEXT_MAX) fail(400, "invalid_request", "text is required (max 20000 characters).", { field: "text", reason: "too_long", limit: TEXT_MAX });
+    if (r.status !== "NeedsInfo") fail(409, "not_awaiting_reply", "This request is not waiting for an answer.", { field: "status", reason: "invalid_value", values: [r.status] });
     const out = await platformCall("POST", `/host/v1/builds/${r.buildId}/reply`, { text: body.text });
-    if (!out.ok) fail(502, "platform_unavailable", "The HandOfClient platform could not be reached.");
+    if (!out.ok) fail(502, "platform_unavailable", "The HandOfClient platform could not be reached.", undefined, platformFailure(out));
     r.status = "InProgress"; r.message = null; r.updatedAt = new Date().toISOString();
     send(res, 200, publicRequest(r));
   });
@@ -144,7 +154,7 @@ export function createReferenceHost(opts = {}) {
 
   route("GET", "api/resolve", async ({ user, query, res }) => {
     const path = query.get("path");
-    if (!path || !path.startsWith("/")) fail(400, "invalid_request", "path must start with /.");
+    if (!path || !path.startsWith("/")) fail(400, "invalid_request", "path must start with /.", { field: "path", reason: "invalid_format" });
     const rank = (f) => { const mine = f.assignments.find((a) => a.userId === user.id); const every = f.assignments.find((a) => a.userId === null); const a = mine ?? every; return { specific: mine ? 1 : 0, seq: a.seq }; };
     const cands = [...state.features.values()].filter((f) => f.path === path && sees(f, user) && !f.disabledFor.has(user.id));
     const pages = cands.filter((f) => f.kind !== "slot").sort((a, b) => {
@@ -163,8 +173,8 @@ export function createReferenceHost(opts = {}) {
 
   route("POST", "api/features/([^/]+)/pin", async ({ user, params, body, res }) => {
     const f = getVisible(decodeURIComponent(params[0]), user);
-    if (!body || !("version" in body) || (body.version !== null && typeof body.version !== "string")) fail(400, "invalid_request", "version is required (a version string or null).");
-    if (body.version !== null && !f.versions.some((v) => v.version === body.version)) fail(404, "version_not_found", "No such version.");
+    if (!body || !("version" in body) || (body.version !== null && typeof body.version !== "string")) fail(400, "invalid_request", "version is required (a version string or null).", { field: "version", reason: "required" });
+    if (body.version !== null && !f.versions.some((v) => v.version === body.version)) fail(404, "version_not_found", "No such version.", { field: "version", reason: "not_found", values: [String(body.version)] });
     if (bug("pin-leaks")) f.currentVersion = body.version ?? f.currentVersion;
     else if (body.version === null) delete f.pins[user.id]; else f.pins[user.id] = body.version;
     send(res, 200, view(f, user));
@@ -172,9 +182,9 @@ export function createReferenceHost(opts = {}) {
 
   route("POST", "api/features/([^/]+)/current", async ({ user, params, body, res }) => {
     const f = getVisible(decodeURIComponent(params[0]), user);
-    if (typeof body?.version !== "string" || !body.version) fail(400, "invalid_request", "version is required.");
+    if (typeof body?.version !== "string" || !body.version) fail(400, "invalid_request", "version is required.", { field: "version", reason: "required" });
     if (f.ownerUserId !== user.id && !isAdmin(user)) fail(403, "forbidden", "Only the owner or an admin may do this.");
-    if (!f.versions.some((v) => v.version === body.version)) fail(404, "version_not_found", "No such version.");
+    if (!f.versions.some((v) => v.version === body.version)) fail(404, "version_not_found", "No such version.", { field: "version", reason: "not_found", values: [String(body.version)] });
     f.currentVersion = body.version;
     send(res, 200, view(f, user));
   });
@@ -186,9 +196,9 @@ export function createReferenceHost(opts = {}) {
     const keys = body && typeof body === "object" ? Object.keys(body) : [];
     const named = keys.length === 1 && keys[0] === "userIds" && Array.isArray(body.userIds) && body.userIds.length > 0 && body.userIds.every((x) => typeof x === "string");
     const everyone = keys.length === 1 && keys[0] === "everyone" && body.everyone === true;
-    if (!named && !everyone) fail(400, "invalid_request", "Send either userIds (non-empty) or everyone: true.");
+    if (!named && !everyone) fail(400, "invalid_request", "Send either userIds (non-empty) or everyone: true.", { field: "userIds", reason: "required" });
     if (!bug("share-ignore-policy") && !allowedBy(everyone ? state.settings.shareWithEveryone : state.settings.shareWithNamedUsers, user, f)) fail(403, "sharing_not_allowed", "Sharing is not allowed for you.");
-    if (named && body.userIds.some((id) => !roster.some((u) => u.id === id))) fail(400, "invalid_request", "Unknown user id.");
+    if (named) { const unknown = body.userIds.find((id) => !roster.some((u) => u.id === id)); if (unknown !== undefined) fail(400, "invalid_request", "Unknown user id.", { field: "userIds", reason: "unknown_user", values: [String(unknown)] }); }
     const targets = everyone ? [null] : [...new Set(body.userIds)];
     for (const t of targets) if (!f.assignments.some((a) => a.userId === t)) f.assignments.push({ userId: t, seq: ++seq });
     send(res, 200, view(f, user));
@@ -205,17 +215,18 @@ export function createReferenceHost(opts = {}) {
 
   route("POST", "api/features/([^/]+)/enabled", async ({ user, params, body, res }) => {
     const f = getVisible(decodeURIComponent(params[0]), user);
-    if (typeof body?.enabled !== "boolean") fail(400, "invalid_request", "enabled must be a boolean.");
+    if (typeof body?.enabled !== "boolean") fail(400, "invalid_request", "enabled must be a boolean.", { field: "enabled", reason: "wrong_type" });
     if (body.enabled) f.disabledFor.delete(user.id); else f.disabledFor.add(user.id);
     send(res, 200, view(f, user));
   });
 
   route("GET", "api/users", async ({ user, query, res }) => {
     const q = query.get("query");
-    if (!q || q.length > 100) fail(400, "invalid_request", "query is required (max 100 characters).");
+    if (!q) fail(400, "invalid_request", "query is required (max 100 characters).", { field: "query", reason: "required" });
+    if (q.length > 100) fail(400, "invalid_request", "query is required (max 100 characters).", { field: "query", reason: "too_long", limit: 100 });
     const limitRaw = query.get("limit");
     const limit = limitRaw === null ? 20 : Number(limitRaw);
-    if (!Number.isInteger(limit) || limit < 1 || limit > 50) fail(400, "invalid_request", "limit must be 1-50.");
+    if (!Number.isInteger(limit) || limit < 1 || limit > 50) fail(400, "invalid_request", "limit must be 1-50.", { field: "limit", reason: "out_of_range", limit: 50 });
     const policy = state.settings.shareWithNamedUsers;
     if (policy === "nobody" || (policy === "admins" && !isAdmin(user))) fail(403, "sharing_not_allowed", "Sharing with named users is not allowed for you.");
     const needle = q.toLowerCase();
@@ -231,26 +242,29 @@ export function createReferenceHost(opts = {}) {
 
   route("PUT", "api/settings", async ({ user, body, res }) => {
     if (!isAdmin(user)) fail(403, "forbidden", "Admins only.");
-    const bad = (m) => fail(400, "invalid_request", m);
-    if (!body || typeof body !== "object") bad("Body must be an object.");
-    if (!MODES.includes(body.renderingMode)) bad("renderingMode must be inject or iframe.");
-    if (!POLICIES.includes(body.shareWithNamedUsers) || !POLICIES.includes(body.shareWithEveryone)) bad("Sharing policies must be owner, admins or nobody.");
-    if (!["admins", "everyone"].includes(body.viewAllRequests)) bad("viewAllRequests must be admins or everyone.");
-    if (!Array.isArray(body.dataSources)) bad("dataSources must be an array.");
-    for (const d of body.dataSources) {
-      if (!d || typeof d.name !== "string" || !d.name || typeof d.baseUrl !== "string") bad("Each data source needs a name and baseUrl.");
-      try { new URL(d.baseUrl); } catch { bad("baseUrl must be a URL."); }
-      if (d.auth && (d.auth.type !== "bearer" || !/^[a-z0-9_-]{1,64}$/.test(d.auth.secret ?? ""))) bad("auth must be bearer with a secret name [a-z0-9_-]{1,64}.");
+    const bad = (m, field, reason, extra = {}) => fail(400, "invalid_request", m, { field, reason, ...extra });
+    if (!body || typeof body !== "object") bad("Body must be an object.", "body", "wrong_type");
+    if (!MODES.includes(body.renderingMode)) bad("renderingMode must be inject or iframe.", "renderingMode", "invalid_value", { values: [...MODES] });
+    for (const f of ["shareWithNamedUsers", "shareWithEveryone"]) if (!POLICIES.includes(body[f])) bad("Sharing policies must be owner, admins or nobody.", f, "invalid_value", { values: [...POLICIES] });
+    if (!["admins", "everyone"].includes(body.viewAllRequests)) bad("viewAllRequests must be admins or everyone.", "viewAllRequests", "invalid_value", { values: ["admins", "everyone"] });
+    if (!Array.isArray(body.dataSources)) bad("dataSources must be an array.", "dataSources", "wrong_type");
+    for (const [i, d] of body.dataSources.entries()) {
+      const at = `dataSources[${i}]`;
+      if (!d || typeof d !== "object") bad("Each data source needs a name and baseUrl.", at, "wrong_type");
+      if (typeof d.name !== "string" || !d.name) bad("Each data source needs a name and baseUrl.", `${at}.name`, "required");
+      if (typeof d.baseUrl !== "string") bad("Each data source needs a name and baseUrl.", `${at}.baseUrl`, "required");
+      try { new URL(d.baseUrl); } catch { bad("baseUrl must be a URL.", `${at}.baseUrl`, "invalid_format"); }
+      if (d.auth && (d.auth.type !== "bearer" || !/^[a-z0-9_-]{1,64}$/.test(d.auth.secret ?? ""))) bad("auth must be bearer with a secret name [a-z0-9_-]{1,64}.", `${at}.auth`, "invalid_format");
     }
     const strip = (list) => JSON.stringify(publicSettings({ dataSources: list }).dataSources);
     const changed = strip(body.dataSources) !== strip(state.settings.dataSources) || body.dataSources.some((d) => d.auth?.secretValue);
     if (changed) {
       for (const d of body.dataSources) if (d.auth?.secretValue) {
         const s = await platformCall("PUT", "/host/v1/secrets", { tenantId: cfg.tenantId, name: d.auth.secret, value: d.auth.secretValue, updatedBy: user.id });
-        if (!s.ok) fail(502, "platform_unavailable", "The HandOfClient platform could not be reached.");
+        if (!s.ok) fail(502, "platform_unavailable", "The HandOfClient platform could not be reached.", undefined, platformFailure(s));
       }
       const out = await platformCall("PUT", "/host/v1/data-sources", { tenantId: cfg.tenantId, dataSources: publicSettings({ dataSources: body.dataSources }).dataSources });
-      if (!out.ok) fail(502, "platform_unavailable", "The HandOfClient platform could not be reached.");
+      if (!out.ok) fail(502, "platform_unavailable", "The HandOfClient platform could not be reached.", undefined, platformFailure(out));
     }
     state.settings = { renderingMode: body.renderingMode, shareWithNamedUsers: body.shareWithNamedUsers, shareWithEveryone: body.shareWithEveryone, viewAllRequests: body.viewAllRequests, dataSources: publicSettings({ dataSources: body.dataSources }).dataSources };
     send(res, 200, publicSettings(state.settings));
@@ -288,11 +302,11 @@ export function createReferenceHost(opts = {}) {
       if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return send(res, 401, { error: "invalid_signature", message: "Signature missing or wrong." });
     }
     let ev;
-    try { ev = JSON.parse(raw.toString("utf8")); } catch { return send(res, 400, { error: "invalid_request", message: "Malformed JSON." }); }
-    if (!ev || typeof ev !== "object") return send(res, 400, { error: "invalid_request", message: "Body must be an object." });
+    try { ev = JSON.parse(raw.toString("utf8")); } catch { return send(res, 400, { error: "invalid_request", message: "Malformed JSON.", field: "body", reason: "invalid_format" }); }
+    if (!ev || typeof ev !== "object") return send(res, 400, { error: "invalid_request", message: "Body must be an object.", field: "body", reason: "wrong_type" });
     if (ev.sentAt !== undefined && !bug("webhook-no-stale-check")) {
       const t = Date.parse(ev.sentAt);
-      if (Number.isNaN(t) || Math.abs(Date.now() - t) > TOLERANCE_MS) return send(res, 400, { error: "stale_event", message: "sentAt is outside the tolerance." });
+      if (Number.isNaN(t) || Math.abs(Date.now() - t) > TOLERANCE_MS) return send(res, 400, { error: "stale_event", message: "sentAt is outside the tolerance.", field: "sentAt", reason: "out_of_range" });
     }
     if (ev.eventId) { if (state.seenEvents.has(ev.eventId)) return send(res, 200, {}); state.seenEvents.add(ev.eventId); }
     applyEvent(ev);
@@ -315,10 +329,10 @@ export function createReferenceHost(opts = {}) {
       const r = routes.map((x) => ({ x, m: x.re.exec(rest) })).find((o) => o.m && o.x.method === req.method);
       if (!r) return send(res, 404, { error: "not_found", message: "Not found." });
       let body;
-      if (raw.length && req.method !== "GET") { try { body = JSON.parse(raw.toString("utf8")); } catch { return send(res, 400, { error: "invalid_request", message: "Malformed JSON." }); } }
+      if (raw.length && req.method !== "GET") { try { body = JSON.parse(raw.toString("utf8")); } catch { return send(res, 400, { error: "invalid_request", message: "Malformed JSON.", field: "body", reason: "invalid_format" }); } }
       await r.x.handler({ req, res, user, query: url.searchParams, params: r.m.slice(1), body });
     } catch (e) {
-      if (e instanceof HttpError) return send(res, e.status, { error: e.code, message: e.message });
+      if (e instanceof HttpError) return send(res, e.status, { error: e.code, message: e.message, ...e.extra });
       console.error("[reference-host]", e);
       if (!res.headersSent) send(res, 500, { error: "internal", message: "Internal error." });
     }

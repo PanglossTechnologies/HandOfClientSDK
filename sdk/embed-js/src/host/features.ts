@@ -94,8 +94,27 @@ export type FeaturesApiErrorCode =
   /** Not from the site: it answered with something that is not the documented error shape. */
   | "unexpected_response";
 
+/**
+ * Machine-readable debugging detail the site adds to an error (no human text). `field`/`reason` say which input
+ * was wrong and why (`required`, `too_long`, `wrong_type`, `invalid_format`, `invalid_value`, `out_of_range`,
+ * `unknown_user`, `not_found`); `values` the offending/allowed values, `limit` the bound. `platform` is what the
+ * HandOfClient platform answered when the site's own call to it failed (`status` 0: unreachable).
+ */
+export interface FeaturesApiErrorDetail {
+  field?: string;
+  reason?: string;
+  values?: string[];
+  limit?: number;
+  platform?: { status: number; error?: string; field?: string; reason?: string; values?: string[]; limit?: number };
+}
+
 export class FeaturesApiError extends Error {
-  constructor(public readonly code: FeaturesApiErrorCode, message: string, public readonly status: number) {
+  constructor(
+    public readonly code: FeaturesApiErrorCode,
+    message: string,
+    public readonly status: number,
+    public readonly detail: FeaturesApiErrorDetail = {},
+  ) {
     super(message);
     this.name = "FeaturesApiError";
   }
@@ -157,14 +176,15 @@ export function createFeaturesApi(options: FeaturesApiOptions = {}): FeaturesApi
         throw new FeaturesApiError("unexpected_response", "The site sent an answer that could not be read.", response.status);
       }
     }
-    let error: { error?: string; message?: string } | undefined;
+    let error: ({ error?: string; message?: string } & FeaturesApiErrorDetail) | undefined;
     try {
-      error = (await response.json()) as { error?: string; message?: string };
+      error = (await response.json()) as typeof error;
     } catch (cause) {
       console.warn("HandOfClient: error answer was not JSON", cause); // falls through to unexpected_response
     }
     if (error?.error && typeof error.message === "string") {
-      throw new FeaturesApiError(error.error as FeaturesApiErrorCode, error.message, response.status);
+      const { field, reason, values, limit, platform } = error;
+      throw new FeaturesApiError(error.error as FeaturesApiErrorCode, error.message, response.status, { field, reason, values, limit, platform });
     }
     throw new FeaturesApiError("unexpected_response", `The site answered ${response.status}.`, response.status);
   }

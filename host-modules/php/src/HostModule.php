@@ -123,7 +123,7 @@ final class HostModule
                     try {
                         $parsed = Json::decode($body);
                     } catch (\JsonException) {
-                        throw HocError::invalid('Malformed JSON.');
+                        throw HocError::invalid('Malformed JSON.', 'body', 'invalid_format');
                     }
                 }
                 $this->logger->info('hoc {method} {path} user={user}', ['method' => $method, 'path' => $path, 'user' => $user->id]);
@@ -132,7 +132,7 @@ final class HostModule
             }
             throw new HocError(404, 'not_found', 'Not found.');
         } catch (HocError $e) {
-            return new HocResponse($e->status, ['error' => $e->errorCode, 'message' => $e->getMessage()]);
+            return new HocResponse($e->status, $e->toPayload());
         } catch (\Throwable $e) {
             $this->logger->error('hoc {method} {path} failed', ['method' => $method, 'path' => $path, 'exception' => $e]);
 
@@ -226,7 +226,7 @@ final class HostModule
             return $default;
         }
         if (!preg_match('/^[0-9]+\z/', $raw) || (int) $raw < $lo || (int) $raw > $hi) {
-            throw HocError::invalid("$name must be $lo-$hi.");
+            throw HocError::invalid("$name must be $lo-$hi.", $name, 'out_of_range', null, $hi);
         }
 
         return (int) $raw;
@@ -351,7 +351,7 @@ final class HostModule
         $featureId = self::q1($c->query, 'featureId');
         if ($featureId === null || $featureId === '') {
             if (!$this->legacyPackageId || !$this->legacySlotId) {
-                throw HocError::invalid('featureId is required.');
+                throw HocError::invalid('featureId is required.', 'featureId', 'required');
             }
             [$packageId, $slotId, $version] = [$this->legacyPackageId, $this->legacySlotId, null];
         } else {
@@ -365,10 +365,10 @@ final class HostModule
         }
         $res = $this->platform->embedToken($c->user->id, $packageId, $slotId, $version);
         if ($res->status === 409) {
-            throw new HocError(409, 'version_unavailable', 'That version is no longer available.');
+            throw new HocError(409, 'version_unavailable', 'That version is no longer available.', platform: HocError::platformFailure($res));
         }
         if (!$res->ok() || !is_array($res->body) || empty($res->body['token'])) {
-            throw HocError::platformUnavailable();
+            throw HocError::platformUnavailable($res);
         }
 
         return new HocResponse(200, ['token' => $res->body['token'], 'expiresAt' => $res->body['expiresAt'] ?? null, 'userId' => $c->user->id, 'displayName' => $c->user->name]);
@@ -379,30 +379,30 @@ final class HostModule
     {
         $body = $c->object();
         if ($body === null) {
-            throw HocError::invalid('Body must be an object.');
+            throw HocError::invalid('Body must be an object.', 'body', 'wrong_type');
         }
         $text = $body['text'] ?? null;
         if (!is_string($text) || self::isBlank($text)) {
-            throw HocError::invalid('text is required.');
+            throw HocError::invalid('text is required.', 'text', 'required');
         }
         if (mb_strlen($text, 'UTF-8') > self::TEXT_MAX) {
-            throw new HocError(413, 'payload_too_large', 'The request text is too long.');
+            throw new HocError(413, 'payload_too_large', 'The request text is too long.', 'text', 'too_long', limit: self::TEXT_MAX);
         }
         $snapshotJson = null;
         if (isset($body['snapshot'])) {
             // Re-decode as objects so empty `{}` inside the page capture survive instead of becoming `[]`.
             $snapshot = Json::decode($c->rawBody, false)->snapshot ?? null;
             if (!$snapshot instanceof \stdClass) {
-                throw HocError::invalid('snapshot must be an object.');
+                throw HocError::invalid('snapshot must be an object.', 'snapshot', 'wrong_type');
             }
             $snapshotJson = Json::encode($snapshot);
             if (strlen($snapshotJson) > self::SNAPSHOT_MAX) {
-                throw new HocError(413, 'payload_too_large', 'The page snapshot is too large.');
+                throw new HocError(413, 'payload_too_large', 'The page snapshot is too large.', 'snapshot', 'too_long', limit: self::SNAPSHOT_MAX);
             }
         }
         $featureId = $body['featureId'] ?? null;
         if ($featureId !== null && !is_string($featureId)) {
-            throw HocError::invalid('featureId must be a string.');
+            throw HocError::invalid('featureId must be a string.', 'featureId', 'wrong_type');
         }
         $rec = $this->storage->transaction(function (StorageTx $tx) use ($c, $text, $featureId, $snapshotJson): RequestRec {
             if ($featureId !== null) {
@@ -476,12 +476,12 @@ final class HostModule
     {
         $scope = self::q1($c->query, 'scope') ?? 'mine';
         if (!in_array($scope, ['mine', 'all'], true)) {
-            throw HocError::invalid('scope must be mine or all.');
+            throw HocError::invalid('scope must be mine or all.', 'scope', 'invalid_value', ['mine', 'all']);
         }
         $statuses = $c->query['status'] ?? [];
         foreach ($statuses as $s) {
             if (!in_array($s, self::STATUSES, true)) {
-                throw HocError::invalid('Unknown status.');
+                throw HocError::invalid('Unknown status.', 'status', 'invalid_value', self::STATUSES);
             }
         }
         $limit = self::intParam($c->query, 'limit', 50, 1, 200);
@@ -490,7 +490,7 @@ final class HostModule
         if ($cursor !== null) {
             $decoded = base64_decode(strtr($cursor, '-_', '+/'), true);
             if ($decoded === false || !preg_match('/^[0-9]{1,12}\z/', $decoded)) {
-                throw HocError::invalid('Bad cursor.');
+                throw HocError::invalid('Bad cursor.', 'cursor', 'invalid_format');
             }
             $offset = (int) $decoded;
         }
@@ -516,14 +516,18 @@ final class HostModule
             throw HocError::notFound('No such request.');
         }
         $text = $c->object()['text'] ?? null;
-        if (!is_string($text) || self::isBlank($text) || mb_strlen($text, 'UTF-8') > self::TEXT_MAX) {
-            throw HocError::invalid('text is required (max 20000 characters).');
+        if (!is_string($text) || self::isBlank($text)) {
+            throw HocError::invalid('text is required (max 20000 characters).', 'text', 'required');
+        }
+        if (mb_strlen($text, 'UTF-8') > self::TEXT_MAX) {
+            throw HocError::invalid('text is required (max 20000 characters).', 'text', 'too_long', null, self::TEXT_MAX);
         }
         if ($r->status !== 'NeedsInfo' || !$r->buildId) {
-            throw new HocError(409, 'not_awaiting_reply', 'This request is not waiting for an answer.');
+            throw new HocError(409, 'not_awaiting_reply', 'This request is not waiting for an answer.', 'status', 'invalid_value', [$r->status]);
         }
-        if (!$this->platform->replyToBuild($r->buildId, $text)->ok()) {
-            throw HocError::platformUnavailable();
+        $replied = $this->platform->replyToBuild($r->buildId, $text);
+        if (!$replied->ok()) {
+            throw HocError::platformUnavailable($replied);
         }
         $updated = $this->storage->transaction(static function (StorageTx $tx) use ($r): ?RequestRec {
             $tx->updateRequest($r->id, ['status' => 'InProgress', 'message' => null, 'updatedAt' => TimeUtil::nowIso()]);
@@ -557,7 +561,7 @@ final class HostModule
     {
         $path = self::q1($c->query, 'path');
         if ($path === null || !str_starts_with($path, '/')) {
-            throw HocError::invalid('path must start with /.');
+            throw HocError::invalid('path must start with /.', 'path', 'invalid_format');
         }
         $out = $this->storage->transaction(function (StorageTx $tx) use ($c, $path): array {
             $cands = array_values(array_filter($this->visibleWithState($tx, $c->user, $path), static fn (Loaded $ld): bool => !$ld->state->disabled));
@@ -622,11 +626,11 @@ final class HostModule
             $ld = $this->loadVisible($tx, $c->params[0], $c->user);
             $body = $c->object();
             if ($body === null || !array_key_exists('version', $body) || ($body['version'] !== null && !is_string($body['version']))) {
-                throw HocError::invalid('version is required (a version string or null).');
+                throw HocError::invalid('version is required (a version string or null).', 'version', 'required');
             }
             $version = $body['version'];
             if ($version !== null && $tx->getVersion($ld->feature->id, $version) === null) {
-                throw new HocError(404, 'version_not_found', 'No such version.');
+                throw new HocError(404, 'version_not_found', 'No such version.', 'version', 'not_found', [(string) $version]);
             }
             $tx->setPin($ld->feature->id, $c->user->id, $version);
 
@@ -640,13 +644,13 @@ final class HostModule
             $ld = $this->loadVisible($tx, $c->params[0], $c->user);
             $version = $c->object()['version'] ?? null;
             if (!is_string($version) || $version === '') {
-                throw HocError::invalid('version is required.');
+                throw HocError::invalid('version is required.', 'version', 'required');
             }
             if ($ld->feature->ownerUserId !== $c->user->id && !$this->admin($c)) {
                 throw HocError::forbidden('Only the owner or an admin may do this.');
             }
             if ($tx->getVersion($ld->feature->id, $version) === null) {
-                throw new HocError(404, 'version_not_found', 'No such version.');
+                throw new HocError(404, 'version_not_found', 'No such version.', 'version', 'not_found', [(string) $version]);
             }
             $tx->updateFeature($ld->feature->id, ['currentVersion' => $version]);
 
@@ -663,7 +667,7 @@ final class HostModule
             && count(array_filter($body['userIds'], 'is_string')) === count($body['userIds']);
         $everyone = $keys === ['everyone'] && $body['everyone'] === true;
         if (!$named && !$everyone) {
-            throw HocError::invalid('Send either userIds (non-empty) or everyone: true.');
+            throw HocError::invalid('Send either userIds (non-empty) or everyone: true.', 'userIds', 'required');
         }
         $policy = $everyone ? $policies['shareWithEveryone'] : $policies['shareWithNamedUsers'];
         if (!self::allowedBy($policy, $this->admin($c), $ld->feature->ownerUserId === $c->user->id)) {
@@ -674,7 +678,7 @@ final class HostModule
         if ($named) {
             foreach ($targets as $uid) {
                 if ($uid !== $c->user->id && !$this->userKnown((string) $uid)) {
-                    throw HocError::invalid('Unknown user id.');
+                    throw HocError::invalid('Unknown user id.', 'userIds', 'unknown_user', [(string) $uid]);
                 }
             }
         }
@@ -723,7 +727,7 @@ final class HostModule
             $ld = $this->loadVisible($tx, $c->params[0], $c->user);
             $enabled = $c->object()['enabled'] ?? null;
             if (!is_bool($enabled)) {
-                throw HocError::invalid('enabled must be a boolean.');
+                throw HocError::invalid('enabled must be a boolean.', 'enabled', 'wrong_type');
             }
             $tx->setDisabled($ld->feature->id, $c->user->id, !$enabled);
 
@@ -734,8 +738,11 @@ final class HostModule
     private function users(Call $c): HocResponse
     {
         $q = self::q1($c->query, 'query');
-        if ($q === null || $q === '' || mb_strlen($q, 'UTF-8') > 100) {
-            throw HocError::invalid('query is required (max 100 characters).');
+        if ($q === null || $q === '') {
+            throw HocError::invalid('query is required (max 100 characters).', 'query', 'required');
+        }
+        if (mb_strlen($q, 'UTF-8') > 100) {
+            throw HocError::invalid('query is required (max 100 characters).', 'query', 'too_long', null, 100);
         }
         $limit = self::intParam($c->query, 'limit', 20, 1, 50);
         $policy = $this->storage->transaction(fn (StorageTx $tx): string => $this->settings($tx)['shareWithNamedUsers']);
@@ -793,30 +800,39 @@ final class HostModule
         }
         $body = $c->object();
         if ($body === null) {
-            throw HocError::invalid('Body must be an object.');
+            throw HocError::invalid('Body must be an object.', 'body', 'wrong_type');
         }
         if (!in_array($body['renderingMode'] ?? null, self::MODES, true)) {
-            throw HocError::invalid('renderingMode must be inject or iframe.');
+            throw HocError::invalid('renderingMode must be inject or iframe.', 'renderingMode', 'invalid_value', ['inject', 'iframe']);
         }
-        if (!in_array($body['shareWithNamedUsers'] ?? null, self::POLICIES, true) || !in_array($body['shareWithEveryone'] ?? null, self::POLICIES, true)) {
-            throw HocError::invalid('Sharing policies must be owner, admins or nobody.');
+        foreach (['shareWithNamedUsers', 'shareWithEveryone'] as $f) {
+            if (!in_array($body[$f] ?? null, self::POLICIES, true)) {
+                throw HocError::invalid('Sharing policies must be owner, admins or nobody.', $f, 'invalid_value', self::POLICIES);
+            }
         }
         if (!in_array($body['viewAllRequests'] ?? null, ['admins', 'everyone'], true)) {
-            throw HocError::invalid('viewAllRequests must be admins or everyone.');
+            throw HocError::invalid('viewAllRequests must be admins or everyone.', 'viewAllRequests', 'invalid_value', ['admins', 'everyone']);
         }
         // Shape checks on the object-decoded tree: assoc arrays cannot tell [] from {}.
         $tree = Json::decode($c->rawBody, false)->dataSources ?? null;
         if (!is_array($tree)) {
-            throw HocError::invalid('dataSources must be an array.');
+            throw HocError::invalid('dataSources must be an array.', 'dataSources', 'wrong_type');
         }
         $sources = array_values($body['dataSources']);
         foreach ($sources as $i => $d) {
             $t = $tree[$i];
-            if (!$t instanceof \stdClass || !is_string($d['name'] ?? null) || $d['name'] === '' || !is_string($d['baseUrl'] ?? null)) {
-                throw HocError::invalid('Each data source needs a name and baseUrl.');
+            $at = "dataSources[$i]";
+            if (!$t instanceof \stdClass) {
+                throw HocError::invalid('Each data source needs a name and baseUrl.', $at, 'wrong_type');
+            }
+            if (!is_string($d['name'] ?? null) || $d['name'] === '') {
+                throw HocError::invalid('Each data source needs a name and baseUrl.', "$at.name", 'required');
+            }
+            if (!is_string($d['baseUrl'] ?? null)) {
+                throw HocError::invalid('Each data source needs a name and baseUrl.', "$at.baseUrl", 'required');
             }
             if (!preg_match('#^[A-Za-z][A-Za-z0-9+.-]*://[^\s/]+#', $d['baseUrl'])) {
-                throw HocError::invalid('baseUrl must be a URL.');
+                throw HocError::invalid('baseUrl must be a URL.', "$at.baseUrl", 'invalid_format');
             }
             if (($t->auth ?? null) !== null) {
                 $auth = $d['auth'];
@@ -825,7 +841,7 @@ final class HostModule
                     || !is_string($auth['secret'] ?? null)
                     || !preg_match('/^[a-z0-9_-]{1,64}\z/', $auth['secret'])
                     || (array_key_exists('secretValue', $auth) && !is_string($auth['secretValue']))) {
-                    throw HocError::invalid('auth must be bearer with a secret name [a-z0-9_-]{1,64}.');
+                    throw HocError::invalid('auth must be bearer with a secret name [a-z0-9_-]{1,64}.', "$at.auth", 'invalid_format');
                 }
             }
         }
@@ -840,12 +856,17 @@ final class HostModule
         $hasSecretValue = static fn (array $d): bool => is_string($d['auth']['secretValue'] ?? null) && $d['auth']['secretValue'] !== '';
         if (Json::canonical($new['dataSources']) !== Json::canonical($old['dataSources']) || array_filter($sources, $hasSecretValue)) {
             foreach ($sources as $d) {
-                if ($hasSecretValue($d) && !$this->platform->putSecret($d['auth']['secret'], $d['auth']['secretValue'], $c->user->id)->ok()) {
-                    throw HocError::platformUnavailable();
+                if (!$hasSecretValue($d)) {
+                    continue;
+                }
+                $put = $this->platform->putSecret($d['auth']['secret'], $d['auth']['secretValue'], $c->user->id);
+                if (!$put->ok()) {
+                    throw HocError::platformUnavailable($put);
                 }
             }
-            if (!$this->platform->putDataSources($new['dataSources'])->ok()) {
-                throw HocError::platformUnavailable();
+            $saved = $this->platform->putDataSources($new['dataSources']);
+            if (!$saved->ok()) {
+                throw HocError::platformUnavailable($saved);
             }
         }
         $this->storage->transaction(static fn (StorageTx $tx) => $tx->saveSettings($new), true);
@@ -863,13 +884,13 @@ final class HostModule
         try {
             $ev = Json::decode($raw);
         } catch (\JsonException) {
-            return new HocResponse(400, ['error' => 'invalid_request', 'message' => 'Malformed JSON.']);
+            return new HocResponse(400, ['error' => 'invalid_request', 'message' => 'Malformed JSON.', 'field' => 'body', 'reason' => 'invalid_format']);
         }
         if (!is_array($ev) || !str_starts_with(ltrim($raw), '{')) {
-            return new HocResponse(400, ['error' => 'invalid_request', 'message' => 'Body must be an object.']);
+            return new HocResponse(400, ['error' => 'invalid_request', 'message' => 'Body must be an object.', 'field' => 'body', 'reason' => 'wrong_type']);
         }
         if (array_key_exists('sentAt', $ev) && Webhook::isStale($ev['sentAt'])) {
-            return new HocResponse(400, ['error' => 'stale_event', 'message' => 'sentAt is outside the tolerance.']);
+            return new HocResponse(400, ['error' => 'stale_event', 'message' => 'sentAt is outside the tolerance.', 'field' => 'sentAt', 'reason' => 'out_of_range']);
         }
         $eventId = $ev['eventId'] ?? null;
         $this->storage->transaction(function (StorageTx $tx) use ($ev, $eventId): void {

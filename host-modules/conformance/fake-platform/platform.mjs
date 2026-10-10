@@ -100,19 +100,26 @@ export function createFakePlatform(options = {}) {
     return `${input}.${b64url(crypto.sign("sha256", Buffer.from(input), { key: privateKey, dsaEncoding: "ieee-p1363" }))}`;
   }
 
+  const bad = (field, reason, extra = {}) => ({ error: "invalid_request", field, reason, ...extra });
+
   function validateBuild(b) {
-    const bad = (m) => ({ error: "invalid_request", message: m });
-    if (!b || typeof b !== "object") return bad("body must be a JSON object");
-    for (const f of ["tenantId", "requestRef"]) if (typeof b[f] !== "string" || !b[f] || b[f].length > 128) return bad(`${f} is required (max 128 characters)`);
-    if (!REF.test(b.requestRef)) return bad("requestRef has invalid characters");
-    if (!b.user || typeof b.user.id !== "string" || !b.user.id || b.user.id.length > 128) return bad("user.id is required (max 128 characters)");
-    if (b.user.name != null && (typeof b.user.name !== "string" || b.user.name.length > 200)) return bad("user.name too long");
-    if (b.user.email != null && (typeof b.user.email !== "string" || b.user.email.length > 320)) return bad("user.email too long");
-    if (typeof b.text !== "string" || !b.text.trim() || b.text.trim().length > 20000) return bad("text is required (max 20000 characters)");
-    if (b.snapshot != null && (typeof b.snapshot !== "object" || Array.isArray(b.snapshot) || JSON.stringify(b.snapshot).length > SNAPSHOT_MAX)) return bad("snapshot must be an object of at most 2 MiB");
-    if (b.feature != null && (typeof b.feature.ref !== "string" || !REF.test(b.feature.ref) || b.feature.ref.length > 128)) return bad("feature.ref is invalid");
-    if (!["inject", "iframe"].includes(String(b.mode).toLowerCase())) return bad("mode must be inject or iframe");
-    if (b.kind != null && !["slot", "page-override", "new-page"].includes(String(b.kind).toLowerCase())) return bad("kind is invalid");
+    if (!b || typeof b !== "object") return bad("body", "wrong_type");
+    for (const f of ["tenantId", "requestRef"]) {
+      if (typeof b[f] !== "string" || !b[f]) return bad(f, "required");
+      if (b[f].length > 128) return bad(f, "too_long", { limit: 128 });
+    }
+    if (!REF.test(b.requestRef)) return bad("requestRef", "invalid_format", { limit: 128 });
+    if (!b.user || typeof b.user.id !== "string" || !b.user.id) return bad("user.id", "required");
+    if (b.user.id.length > 128) return bad("user.id", "too_long", { limit: 128 });
+    if (b.user.name != null && (typeof b.user.name !== "string" || b.user.name.length > 200)) return bad("user.name", "too_long", { limit: 200 });
+    if (b.user.email != null && (typeof b.user.email !== "string" || b.user.email.length > 320)) return bad("user.email", "too_long", { limit: 320 });
+    if (typeof b.text !== "string" || !b.text.trim()) return bad("text", "required");
+    if (b.text.trim().length > 20000) return bad("text", "too_long", { limit: 20000 });
+    if (b.snapshot != null && (typeof b.snapshot !== "object" || Array.isArray(b.snapshot))) return bad("snapshot", "wrong_type");
+    if (b.snapshot != null && JSON.stringify(b.snapshot).length > SNAPSHOT_MAX) return bad("snapshot", "too_long", { limit: SNAPSHOT_MAX });
+    if (b.feature != null && (typeof b.feature.ref !== "string" || !REF.test(b.feature.ref) || b.feature.ref.length > 128)) return bad("feature.ref", "invalid_format", { limit: 128 });
+    if (!["inject", "iframe"].includes(String(b.mode).toLowerCase())) return bad("mode", "invalid_value", { values: ["inject", "iframe"] });
+    if (b.kind != null && !["slot", "page-override", "new-page"].includes(String(b.kind).toLowerCase())) return bad("kind", "invalid_value", { values: ["slot", "page-override", "new-page"] });
     return null;
   }
 
@@ -120,9 +127,8 @@ export function createFakePlatform(options = {}) {
     const path = url.pathname;
     if (req.headers["x-api-key"] !== cfg.apiKey) return record(401), sendJson(res, 401, undefined);
     let body = null;
-    if (raw.length) { try { body = JSON.parse(raw.toString("utf8")); } catch { return record(400), sendJson(res, 400, { error: "invalid_request" }); } }
+    if (raw.length) { try { body = JSON.parse(raw.toString("utf8")); } catch { return record(400), sendJson(res, 400, bad("body", "invalid_format")); } }
     const reply = (status, payload) => { record(status); sendJson(res, status, payload); };
-    const legacy = (status, msg) => reply(status, { error: msg });
 
     if (req.method === "POST" && path === "/host/v1/builds") {
       const problem = validateBuild(body);
@@ -143,39 +149,42 @@ export function createFakePlatform(options = {}) {
     let m = path.match(/^\/host\/v1\/builds\/([^/]+)(\/reply)?$/);
     if (m) {
       const b = state.builds.get(m[1]);
-      if (!b) return reply(404, { error: "build_not_found", message: "No such build." });
+      if (!b) return reply(404, { error: "build_not_found", field: "id", reason: "not_found", values: [m[1]] });
       if (req.method === "GET" && !m[2]) { const { replies, ...pub } = b; return reply(200, pub); }
       if (req.method === "POST" && m[2]) {
-        if (typeof body?.text !== "string" || !body.text.trim() || body.text.length > 20000) return reply(400, { error: "invalid_request", message: "text is required (max 20000 characters)" });
-        if (b.status !== "NeedsInfo") return reply(409, { error: "build_not_awaiting_reply", message: "The build is not waiting for an answer." });
+        if (typeof body?.text !== "string" || !body.text.trim()) return reply(400, bad("text", "required"));
+        if (body.text.length > 20000) return reply(400, bad("text", "too_long", { limit: 20000 }));
+        if (b.status !== "NeedsInfo") return reply(409, { error: "build_not_awaiting_reply", field: "status", reason: "invalid_value", values: [b.status] });
         b.replies.push(body.text); b.status = "InProgress"; b.message = null;
         return reply(200, { buildId: b.buildId, status: b.status });
       }
     }
     if (req.method === "POST" && path === "/host/v1/embed-token") {
-      for (const f of ["tenantId", "userId", "packageId", "slotId"]) if (typeof body?.[f] !== "string" || !body[f]) return legacy(400, `${f} is required`);
-      if (body.version == null) return legacy(412, "No active activation for this tenant and slot.");
+      for (const f of ["tenantId", "userId", "packageId", "slotId"]) if (typeof body?.[f] !== "string" || !body[f]) return reply(400, bad(f, "required"));
+      if (body.version == null) return reply(412, { error: "activation_inactive", field: "activation", reason: "inactive", values: [body.tenantId, body.packageId, body.slotId] });
       const pkg = state.packages.get(body.packageId);
-      if (!pkg) return legacy(404, "Unknown package.");
+      if (!pkg) return reply(404, { error: "package_not_found", field: "packageId", reason: "not_found", values: [body.packageId] });
       const v = pkg.versions.get(body.version);
-      if (!v) return legacy(404, "Unknown version.");
-      if (v.withdrawn) return legacy(409, "The version has been withdrawn.");
-      if (v.slotId !== body.slotId) return legacy(400, "The version does not declare that slot.");
+      if (!v) return reply(404, { error: "package_not_found", field: "packageId", reason: "not_found", values: [body.packageId] });
+      if (v.withdrawn) return reply(409, { error: "version_withdrawn", field: "version", reason: "withdrawn", values: [body.version] });
+      if (v.slotId !== body.slotId) return reply(400, { error: "slot_not_declared", field: "slotId", reason: "not_declared", values: [body.slotId] });
       const now = Math.floor(Date.now() / 1000);
       const token = jwt({ iss: "handofclient", aud: "handofclient-platform-api", sub: body.userId, jti: crypto.randomBytes(16).toString("hex"), hid: cfg.hostId, tid: body.tenantId, pkg: body.packageId, ver: body.version, slot: body.slotId, scope: "", xv: "1", nbf: now, exp: now + 480 });
       return reply(200, { token, expiresAt: new Date((now + 480) * 1000).toISOString() });
     }
     if (req.method === "PUT" && path === "/host/v1/data-sources") {
-      if (typeof body?.tenantId !== "string" || !Array.isArray(body.dataSources)) return reply(400, { error: "invalid_request", message: "tenantId and dataSources are required" });
+      if (typeof body?.tenantId !== "string" || !Array.isArray(body.dataSources)) return reply(400, typeof body?.tenantId !== "string" ? bad("tenantId", "required") : bad("dataSources", "wrong_type"));
       state.dataSources = body.dataSources;
       return reply(200, { tenantId: body.tenantId, dataSources: body.dataSources.map((d) => d.name), allowedHostsAdded: [] });
     }
     if (req.method === "PUT" && path === "/host/v1/secrets") {
-      if (typeof body?.tenantId !== "string" || !SECRET_NAME.test(body?.name ?? "") || typeof body?.value !== "string" || !body.value) return legacy(400, "tenantId, name ([a-z0-9_-]{1,64}) and a non-empty value are required");
+      if (typeof body?.tenantId !== "string" || !body.tenantId) return reply(400, bad("tenantId", "required"));
+      if (!SECRET_NAME.test(body?.name ?? "")) return reply(400, { error: "invalid_secret_name", field: "name", reason: "invalid_format" });
+      if (typeof body?.value !== "string" || !body.value) return reply(400, { error: "invalid_secret_value", field: "value", reason: "required" });
       state.secrets.set(`${body.tenantId}/${body.name}`, body.value);
       return reply(200, { tenantId: body.tenantId, name: body.name, updatedAt: new Date().toISOString() });
     }
-    reply(404, { error: "not_found", message: `The fake platform does not implement ${req.method} ${path}.` });
+    reply(404, { error: "not_found", field: "path", reason: "not_found", values: [`${req.method} ${path}`] });
   }
 
   async function handleControl(req, res, url, raw) {
@@ -228,7 +237,7 @@ export function createFakePlatform(options = {}) {
         failure.times--;
         if (failure.drop) { call.status = 0; return req.socket.destroy(); }
         call.status = failure.status;
-        return sendJson(res, failure.status, { error: "injected_failure", message: "Failure injected by the test." });
+        return sendJson(res, failure.status, { error: "injected_failure" });
       }
       await handleHost(req, res, url, raw, record);
     } catch (e) {

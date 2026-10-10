@@ -5,7 +5,7 @@
  * {@link HostModule.handle} and its {@link HocResponse} back. Contract: `openapi/site-hoc-api.yaml`.
  */
 import { randomBytes } from "node:crypto";
-import { HocError, forbidden, invalid, notFound, platformUnavailable, unauthenticated } from "./errors.js";
+import { HocError, forbidden, invalid, notFound, platformFailure, platformUnavailable, unauthenticated } from "./errors.js";
 import { defaultLogger, describeError, type Logger } from "./logger.js";
 import type { PlatformApi } from "./platformClient.js";
 import type { Assignment, FeatureRec, RequestRec, Storage, StorageTx, UserState } from "./storage/base.js";
@@ -163,7 +163,7 @@ export class HostModule {
       }
       throw new HocError(404, "not_found", "Not found.");
     } catch (e) {
-      if (e instanceof HocError) return { status: e.status, payload: { error: e.code, message: e.message } };
+      if (e instanceof HocError) return { status: e.status, payload: e.toPayload() };
       this.log.error(`hoc ${method} ${path} failed\n${describeError(e)}`);
       return { status: 500, payload: { error: "internal", message: "Internal error." } };
     }
@@ -203,7 +203,7 @@ export class HostModule {
     try {
       return JSON.parse(Buffer.from(raw).toString("utf8"));
     } catch {
-      throw invalid("Malformed JSON.");
+      throw invalid("Malformed JSON.", "body", "invalid_format");
     }
   }
 
@@ -224,7 +224,7 @@ export class HostModule {
   private static intParam(query: Record<string, string[]>, name: string, dflt: number, lo: number, hi: number): number {
     const raw = HostModule.q1(query, name);
     if (raw === null) return dflt;
-    if (!/^[0-9]+$/.test(raw) || Number(raw) < lo || Number(raw) > hi) throw invalid(`${name} must be ${lo}-${hi}.`);
+    if (!/^[0-9]+$/.test(raw) || Number(raw) < lo || Number(raw) > hi) throw invalid(`${name} must be ${lo}-${hi}.`, name, "out_of_range", { limit: hi });
     return Number(raw);
   }
 
@@ -322,7 +322,7 @@ export class HostModule {
     if (!featureId) {
       packageId = this.opts.legacyPackageId;
       slotId = this.opts.legacySlotId;
-      if (!packageId || !slotId) throw invalid("featureId is required.");
+      if (!packageId || !slotId) throw invalid("featureId is required.", "featureId", "required");
     } else {
       const ld = await this.storage.transaction(false, (tx) => this.loadVisible(tx, featureId, c.user));
       if (ld.state.disabled) throw notFound();
@@ -331,26 +331,26 @@ export class HostModule {
       version = ld.state.pinnedVersion ?? ld.feature.currentVersion;
     }
     const res = await this.platform.embedToken(c.user.id, packageId, slotId, version);
-    if (res.status === 409) throw new HocError(409, "version_unavailable", "That version is no longer available.");
-    if (!res.ok || !isObject(res.body) || !res.body.token) throw platformUnavailable();
+    if (res.status === 409) throw new HocError(409, "version_unavailable", "That version is no longer available.", undefined, platformFailure(res));
+    if (!res.ok || !isObject(res.body) || !res.body.token) throw platformUnavailable(res);
     return { status: 200, payload: { token: res.body.token, expiresAt: res.body.expiresAt ?? null, userId: c.user.id, displayName: c.user.name } };
   }
 
   // ---- requests
   private async createRequest(c: Call): Promise<HocResponse> {
     const body = c.body;
-    if (!isObject(body)) throw invalid("Body must be an object.");
+    if (!isObject(body)) throw invalid("Body must be an object.", "body", "wrong_type");
     const text = body.text;
-    if (typeof text !== "string" || text.trim() === "") throw invalid("text is required.");
-    if (codePoints(text) > TEXT_MAX) throw new HocError(413, "payload_too_large", "The request text is too long.");
+    if (typeof text !== "string" || text.trim() === "") throw invalid("text is required.", "text", "required");
+    if (codePoints(text) > TEXT_MAX) throw new HocError(413, "payload_too_large", "The request text is too long.", { field: "text", reason: "too_long", limit: TEXT_MAX });
     let snapshotJson: string | null = null;
     if (body.snapshot !== undefined && body.snapshot !== null) {
-      if (!isObject(body.snapshot)) throw invalid("snapshot must be an object.");
+      if (!isObject(body.snapshot)) throw invalid("snapshot must be an object.", "snapshot", "wrong_type");
       snapshotJson = JSON.stringify(body.snapshot);
-      if (Buffer.byteLength(snapshotJson, "utf8") > SNAPSHOT_MAX) throw new HocError(413, "payload_too_large", "The page snapshot is too large.");
+      if (Buffer.byteLength(snapshotJson, "utf8") > SNAPSHOT_MAX) throw new HocError(413, "payload_too_large", "The page snapshot is too large.", { field: "snapshot", reason: "too_long", limit: SNAPSHOT_MAX });
     }
     const featureId = body.featureId ?? null;
-    if (featureId !== null && typeof featureId !== "string") throw invalid("featureId must be a string.");
+    if (featureId !== null && typeof featureId !== "string") throw invalid("featureId must be a string.", "featureId", "wrong_type");
     const rec = await this.storage.transaction(true, async (tx) => {
       if (featureId !== null) await this.loadVisible(tx, featureId, c.user);
       const now = nowIso();
@@ -424,15 +424,15 @@ export class HostModule {
 
   private async listRequests(c: Call): Promise<HocResponse> {
     const scope = HostModule.q1(c.query, "scope") ?? "mine";
-    if (scope !== "mine" && scope !== "all") throw invalid("scope must be mine or all.");
+    if (scope !== "mine" && scope !== "all") throw invalid("scope must be mine or all.", "scope", "invalid_value", { values: ["mine", "all"] });
     const statuses = c.query.status ?? [];
-    if (statuses.some((s) => !oneOf(STATUSES, s))) throw invalid("Unknown status.");
+    if (statuses.some((s) => !oneOf(STATUSES, s))) throw invalid("Unknown status.", "status", "invalid_value", { values: [...STATUSES] });
     const limit = HostModule.intParam(c.query, "limit", 50, 1, 200);
     let offset = 0;
     const cursor = HostModule.q1(c.query, "cursor");
     if (cursor !== null) {
       const decoded = /^[A-Za-z0-9_-]+$/.test(cursor) ? Buffer.from(cursor, "base64url").toString("ascii") : "";
-      if (!/^[0-9]+$/.test(decoded)) throw invalid("Bad cursor.");
+      if (!/^[0-9]+$/.test(decoded)) throw invalid("Bad cursor.", "cursor", "invalid_format");
       offset = Number(decoded);
     }
     const page = await this.storage.transaction(false, async (tx) => {
@@ -450,9 +450,11 @@ export class HostModule {
     let r = await this.storage.transaction(false, (tx) => tx.getRequest(c.params[0]));
     if (r === null || r.userId !== c.user.id) throw notFound("No such request.");
     const text = field(c.body, "text");
-    if (typeof text !== "string" || text.trim() === "" || codePoints(text) > TEXT_MAX) throw invalid("text is required (max 20000 characters).");
-    if (r.status !== "NeedsInfo" || !r.buildId) throw new HocError(409, "not_awaiting_reply", "This request is not waiting for an answer.");
-    if (!(await this.platform.replyToBuild(r.buildId, text)).ok) throw platformUnavailable();
+    if (typeof text !== "string" || text.trim() === "") throw invalid("text is required (max 20000 characters).", "text", "required");
+    if (codePoints(text) > TEXT_MAX) throw invalid("text is required (max 20000 characters).", "text", "too_long", { limit: TEXT_MAX });
+    if (r.status !== "NeedsInfo" || !r.buildId) throw new HocError(409, "not_awaiting_reply", "This request is not waiting for an answer.", { field: "status", reason: "invalid_value", values: [r.status] });
+    const replied = await this.platform.replyToBuild(r.buildId, text);
+    if (!replied.ok) throw platformUnavailable(replied);
     const id = r.id;
     r = await this.storage.transaction(true, async (tx) => {
       await tx.updateRequest(id, { status: "InProgress", message: null, updatedAt: nowIso() });
@@ -479,7 +481,7 @@ export class HostModule {
 
   private async resolve(c: Call): Promise<HocResponse> {
     const path = HostModule.q1(c.query, "path");
-    if (!path || !path.startsWith("/")) throw invalid("path must start with /.");
+    if (!path || !path.startsWith("/")) throw invalid("path must start with /.", "path", "invalid_format");
     const features = await this.storage.transaction(false, async (tx) => {
       const cands = (await this.visibleWithState(tx, c.user, path)).filter((ld) => !ld.state.disabled);
       // Page overrides / new pages: one per path. A user-specific assignment beats "everyone"; the newest assignment wins.
@@ -534,10 +536,10 @@ export class HostModule {
       const ld = await this.loadVisible(tx, c.params[0], c.user);
       const body = c.body;
       if (!isObject(body) || !has(body, "version") || (body.version !== null && typeof body.version !== "string")) {
-        throw invalid("version is required (a version string or null).");
+        throw invalid("version is required (a version string or null).", "version", "required");
       }
       const version: string | null = body.version;
-      if (version !== null && (await tx.getVersion(ld.feature.id, version)) === null) throw new HocError(404, "version_not_found", "No such version.");
+      if (version !== null && (await tx.getVersion(ld.feature.id, version)) === null) throw new HocError(404, "version_not_found", "No such version.", { field: "version", reason: "not_found", values: [String(version)] });
       await tx.setPin(ld.feature.id, c.user.id, version);
       return this.reloadView(tx, c, ld.feature.id);
     });
@@ -547,9 +549,9 @@ export class HostModule {
     return this.storage.transaction(true, async (tx) => {
       const ld = await this.loadVisible(tx, c.params[0], c.user);
       const version = field(c.body, "version");
-      if (typeof version !== "string" || version === "") throw invalid("version is required.");
+      if (typeof version !== "string" || version === "") throw invalid("version is required.", "version", "required");
       if (ld.feature.ownerUserId !== c.user.id && !(await this.admin(c))) throw forbidden("Only the owner or an admin may do this.");
-      if ((await tx.getVersion(ld.feature.id, version)) === null) throw new HocError(404, "version_not_found", "No such version.");
+      if ((await tx.getVersion(ld.feature.id, version)) === null) throw new HocError(404, "version_not_found", "No such version.", { field: "version", reason: "not_found", values: [String(version)] });
       await tx.updateFeature(ld.feature.id, { currentVersion: version });
       return this.reloadView(tx, c, ld.feature.id);
     });
@@ -565,14 +567,14 @@ export class HostModule {
     const named =
       keys.length === 1 && keys[0] === "userIds" && Array.isArray(body.userIds) && body.userIds.length > 0 && body.userIds.every((x: unknown) => typeof x === "string");
     const everyone = keys.length === 1 && keys[0] === "everyone" && body.everyone === true;
-    if (!named && !everyone) throw invalid("Send either userIds (non-empty) or everyone: true.");
+    if (!named && !everyone) throw invalid("Send either userIds (non-empty) or everyone: true.", "userIds", "required");
     const policy = everyone ? policies.shareWithEveryone : policies.shareWithNamedUsers;
     if (!HostModule.allowedBy(policy, await this.admin(c), ld.feature.ownerUserId === c.user.id)) {
       throw new HocError(403, "sharing_not_allowed", "Sharing is not allowed for you.");
     }
     const targets: (string | null)[] = everyone ? [null] : [...new Set<string>(body.userIds)];
     if (named) {
-      for (const uid of targets) if (uid !== c.user.id && !(await this.userKnown(String(uid)))) throw invalid("Unknown user id.");
+      for (const uid of targets) if (uid !== c.user.id && !(await this.userKnown(String(uid)))) throw invalid("Unknown user id.", "userIds", "unknown_user", { values: [String(uid)] });
     }
     return this.storage.transaction(true, async (tx) => {
       await this.loadVisible(tx, ld.feature.id, c.user);
@@ -601,7 +603,7 @@ export class HostModule {
     return this.storage.transaction(true, async (tx) => {
       const ld = await this.loadVisible(tx, c.params[0], c.user);
       const enabled = field(c.body, "enabled");
-      if (typeof enabled !== "boolean") throw invalid("enabled must be a boolean.");
+      if (typeof enabled !== "boolean") throw invalid("enabled must be a boolean.", "enabled", "wrong_type");
       await tx.setDisabled(ld.feature.id, c.user.id, !enabled);
       return this.reloadView(tx, c, ld.feature.id);
     });
@@ -609,7 +611,8 @@ export class HostModule {
 
   private async users(c: Call): Promise<HocResponse> {
     const q = HostModule.q1(c.query, "query");
-    if (!q || codePoints(q) > 100) throw invalid("query is required (max 100 characters).");
+    if (!q) throw invalid("query is required (max 100 characters).", "query", "required");
+    if (codePoints(q) > 100) throw invalid("query is required (max 100 characters).", "query", "too_long", { limit: 100 });
     const limit = HostModule.intParam(c.query, "limit", 20, 1, 50);
     const policy = (await this.storage.transaction(false, (tx) => this.settings(tx))).shareWithNamedUsers;
     if (policy === "nobody" || (policy === "admins" && !(await this.admin(c)))) {
@@ -648,15 +651,20 @@ export class HostModule {
   private async putSettings(c: Call): Promise<HocResponse> {
     if (!(await this.admin(c))) throw forbidden("Admins only.");
     const body = c.body;
-    if (!isObject(body)) throw invalid("Body must be an object.");
-    if (!oneOf(MODES, body.renderingMode)) throw invalid("renderingMode must be inject or iframe.");
-    if (!oneOf(POLICIES, body.shareWithNamedUsers) || !oneOf(POLICIES, body.shareWithEveryone)) throw invalid("Sharing policies must be owner, admins or nobody.");
-    if (body.viewAllRequests !== "admins" && body.viewAllRequests !== "everyone") throw invalid("viewAllRequests must be admins or everyone.");
+    if (!isObject(body)) throw invalid("Body must be an object.", "body", "wrong_type");
+    if (!oneOf(MODES, body.renderingMode)) throw invalid("renderingMode must be inject or iframe.", "renderingMode", "invalid_value", { values: ["inject", "iframe"] });
+    for (const f of ["shareWithNamedUsers", "shareWithEveryone"] as const) {
+      if (!oneOf(POLICIES, body[f])) throw invalid("Sharing policies must be owner, admins or nobody.", f, "invalid_value", { values: [...POLICIES] });
+    }
+    if (body.viewAllRequests !== "admins" && body.viewAllRequests !== "everyone") throw invalid("viewAllRequests must be admins or everyone.", "viewAllRequests", "invalid_value", { values: ["admins", "everyone"] });
     const sources = body.dataSources;
-    if (!Array.isArray(sources)) throw invalid("dataSources must be an array.");
-    for (const d of sources) {
-      if (!isObject(d) || typeof d.name !== "string" || d.name === "" || typeof d.baseUrl !== "string") throw invalid("Each data source needs a name and baseUrl.");
-      if (!/^[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s/]+/.test(d.baseUrl)) throw invalid("baseUrl must be a URL.");
+    if (!Array.isArray(sources)) throw invalid("dataSources must be an array.", "dataSources", "wrong_type");
+    for (const [i, d] of sources.entries()) {
+      const at = `dataSources[${i}]`;
+      if (!isObject(d)) throw invalid("Each data source needs a name and baseUrl.", at, "wrong_type");
+      if (typeof d.name !== "string" || d.name === "") throw invalid("Each data source needs a name and baseUrl.", `${at}.name`, "required");
+      if (typeof d.baseUrl !== "string") throw invalid("Each data source needs a name and baseUrl.", `${at}.baseUrl`, "required");
+      if (!/^[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s/]+/.test(d.baseUrl)) throw invalid("baseUrl must be a URL.", `${at}.baseUrl`, "invalid_format");
       const auth = d.auth;
       if (
         auth !== undefined &&
@@ -667,7 +675,7 @@ export class HostModule {
           !SECRET_NAME.test(auth.secret) ||
           (has(auth, "secretValue") && typeof auth.secretValue !== "string"))
       ) {
-        throw invalid("auth must be bearer with a secret name [a-z0-9_-]{1,64}.");
+        throw invalid("auth must be bearer with a secret name [a-z0-9_-]{1,64}.", `${at}.auth`, "invalid_format");
       }
     }
     const next = {
@@ -682,9 +690,12 @@ export class HostModule {
     if (canon(next.dataSources) !== canon(old.dataSources) || hasNewSecret) {
       for (const d of sources) {
         const value = isObject(d.auth) ? d.auth.secretValue : undefined;
-        if (value && !(await this.platform.putSecret(d.auth.secret, value, c.user.id)).ok) throw platformUnavailable();
+        if (!value) continue;
+        const put = await this.platform.putSecret(d.auth.secret, value, c.user.id);
+        if (!put.ok) throw platformUnavailable(put);
       }
-      if (!(await this.platform.putDataSources(next.dataSources)).ok) throw platformUnavailable();
+      const saved = await this.platform.putDataSources(next.dataSources);
+      if (!saved.ok) throw platformUnavailable(saved);
     }
     await this.storage.transaction(true, (tx) => tx.saveSettings(next));
     return { status: 200, payload: HostModule.publicSettings(next) };
@@ -700,10 +711,10 @@ export class HostModule {
     try {
       ev = JSON.parse(Buffer.from(raw).toString("utf8"));
     } catch {
-      return { status: 400, payload: { error: "invalid_request", message: "Malformed JSON." } };
+      return { status: 400, payload: { error: "invalid_request", message: "Malformed JSON.", field: "body", reason: "invalid_format" } };
     }
-    if (!isObject(ev)) return { status: 400, payload: { error: "invalid_request", message: "Body must be an object." } };
-    if (has(ev, "sentAt") && isStale(ev.sentAt)) return { status: 400, payload: { error: "stale_event", message: "sentAt is outside the tolerance." } };
+    if (!isObject(ev)) return { status: 400, payload: { error: "invalid_request", message: "Body must be an object.", field: "body", reason: "wrong_type" } };
+    if (has(ev, "sentAt") && isStale(ev.sentAt)) return { status: 400, payload: { error: "stale_event", message: "sentAt is outside the tolerance.", field: "sentAt", reason: "out_of_range" } };
     const eventId = ev.eventId;
     await this.storage.transaction(true, async (tx) => {
       if (typeof eventId === "string" && eventId !== "" && !(await tx.recordEvent(eventId, nowIso()))) return; // a repeat; nothing was changed

@@ -53,6 +53,18 @@ describe("createFeaturesApi", () => {
     await assert.rejects(createFeaturesApi(as("alice")).pinFeatureVersion("missing", null), (e) => e.code === "not_found" && e.status === 404);
   });
 
+  test("errors expose the structured field/reason/values/limit and the platform block", async () => {
+    const answer = (status, body) => createFeaturesApi({ sitePrefix: `${base}/hoc`, fetch: async () => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } }) });
+    await assert.rejects(
+      answer(400, { error: "invalid_request", message: "Unknown status.", field: "status", reason: "invalid_value", values: ["InProgress"], limit: 3 }).listFeatures(),
+      (e) => e.code === "invalid_request" && e.detail.field === "status" && e.detail.reason === "invalid_value" && e.detail.values[0] === "InProgress" && e.detail.limit === 3,
+    );
+    await assert.rejects(
+      answer(502, { error: "platform_unavailable", message: "x", platform: { status: 0 } }).listFeatures(),
+      (e) => e.code === "platform_unavailable" && e.detail.platform.status === 0,
+    );
+  });
+
   test("a non-JSON error and an unreachable site map to unexpected_response and network_error", async () => {
     const html = createFeaturesApi({ sitePrefix: `${base}/hoc`, fetch: (url, init) => fetch(url, { ...init, headers: { "x-html-error": "1" } }) });
     await assert.rejects(html.listFeatures(), (e) => e.code === "unexpected_response" && e.status === 500);

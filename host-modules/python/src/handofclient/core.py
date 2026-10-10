@@ -14,7 +14,7 @@ import threading
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
-from .errors import HocError, forbidden, invalid, not_found, platform_unavailable, unauthenticated
+from .errors import HocError, forbidden, invalid, not_found, platform_failure, platform_unavailable, unauthenticated
 from .platform_client import PlatformClient
 from .storage import Assignment, FeatureRec, RequestRec, Storage, StorageTx, UserState, VersionRec
 from .timeutil import now_iso
@@ -162,7 +162,7 @@ class HostModule:
                     return handler(_Call(u, query or {}, parsed, match.groups()))
             raise HocError(404, "not_found", "Not found.")
         except HocError as e:
-            return HocResponse(e.status, {"error": e.code, "message": e.message})
+            return HocResponse(e.status, e.to_payload())
         except Exception:  # noqa: BLE001 - logged with its inner exceptions by log.exception
             log.exception("hoc %s %s failed", method, path)
             return HocResponse(500, {"error": "internal", "message": "Internal error."})
@@ -204,7 +204,7 @@ class HostModule:
         try:
             return json.loads(raw.decode("utf-8"))
         except (ValueError, UnicodeDecodeError):
-            raise invalid("Malformed JSON.")
+            raise invalid("Malformed JSON.", "body", "invalid_format")
 
     def _route(self, method: str, pattern: str, handler: Callable[[_Call], HocResponse], body: bool = False) -> None:
         self._routes.append((method, re.compile("^" + pattern + "$"), handler, body))
@@ -225,7 +225,7 @@ class HostModule:
         if raw is None:
             return default
         if not re.fullmatch(r"[0-9]+", raw) or not lo <= int(raw) <= hi:
-            raise invalid(f"{name} must be {lo}-{hi}.")
+            raise invalid(f"{name} must be {lo}-{hi}.", name, "out_of_range", limit=hi)
         return int(raw)
 
     def _settings(self, tx: StorageTx) -> Dict[str, Any]:
@@ -316,7 +316,7 @@ class HostModule:
         if not feature_id:
             package_id, slot_id = self._legacy
             if not package_id or not slot_id:
-                raise invalid("featureId is required.")
+                raise invalid("featureId is required.", "featureId", "required")
             version: Optional[str] = None
         else:
             with self.storage.transaction() as tx:
@@ -327,32 +327,32 @@ class HostModule:
             version = ld.state.pinned_version or ld.feature.current_version
         res = self.platform.embed_token(c.user.id, package_id, slot_id, version)
         if res.status == 409:
-            raise HocError(409, "version_unavailable", "That version is no longer available.")
+            raise HocError(409, "version_unavailable", "That version is no longer available.", platform=platform_failure(res))
         if not res.ok or not isinstance(res.body, dict) or not res.body.get("token"):
-            raise platform_unavailable()
+            raise platform_unavailable(res)
         return HocResponse(200, {"token": res.body["token"], "expiresAt": res.body.get("expiresAt"), "userId": c.user.id, "displayName": c.user.name})
 
     # ---- requests
     def _create_request(self, c: _Call) -> HocResponse:
         body = c.body
         if not isinstance(body, dict):
-            raise invalid("Body must be an object.")
+            raise invalid("Body must be an object.", "body", "wrong_type")
         text = body.get("text")
         if not isinstance(text, str) or not text.strip():
-            raise invalid("text is required.")
+            raise invalid("text is required.", "text", "required")
         if len(text) > TEXT_MAX:
-            raise HocError(413, "payload_too_large", "The request text is too long.")
+            raise HocError(413, "payload_too_large", "The request text is too long.", "text", "too_long", limit=TEXT_MAX)
         snapshot = body.get("snapshot")
         snapshot_json: Optional[str] = None
         if snapshot is not None:
             if not isinstance(snapshot, dict):
-                raise invalid("snapshot must be an object.")
+                raise invalid("snapshot must be an object.", "snapshot", "wrong_type")
             snapshot_json = json.dumps(snapshot, separators=(",", ":"), ensure_ascii=False)
             if len(snapshot_json.encode("utf-8")) > SNAPSHOT_MAX:
-                raise HocError(413, "payload_too_large", "The page snapshot is too large.")
+                raise HocError(413, "payload_too_large", "The page snapshot is too large.", "snapshot", "too_long", limit=SNAPSHOT_MAX)
         feature_id = body.get("featureId")
         if feature_id is not None and not isinstance(feature_id, str):
-            raise invalid("featureId must be a string.")
+            raise invalid("featureId must be a string.", "featureId", "wrong_type")
         with self.storage.transaction(write=True) as tx:
             if feature_id is not None:
                 self._load_visible(tx, feature_id, c.user)
@@ -426,10 +426,10 @@ class HostModule:
     def _list_requests(self, c: _Call) -> HocResponse:
         scope = self._q1(c.query, "scope") or "mine"
         if scope not in ("mine", "all"):
-            raise invalid("scope must be mine or all.")
+            raise invalid("scope must be mine or all.", "scope", "invalid_value", ["mine", "all"])
         statuses = list(c.query.get("status") or [])
         if any(s not in STATUSES for s in statuses):
-            raise invalid("Unknown status.")
+            raise invalid("Unknown status.", "status", "invalid_value", list(STATUSES))
         limit = self._int_param(c.query, "limit", 50, 1, 200)
         offset = 0
         cursor = self._q1(c.query, "cursor")
@@ -439,7 +439,7 @@ class HostModule:
                 if offset < 0:
                     raise ValueError
             except (ValueError, UnicodeDecodeError):
-                raise invalid("Bad cursor.")
+                raise invalid("Bad cursor.", "cursor", "invalid_format")
         with self.storage.transaction() as tx:
             if scope == "all":
                 policy = self._settings(tx)["viewAllRequests"]
@@ -455,12 +455,15 @@ class HostModule:
         if r is None or r.user_id != c.user.id:
             raise not_found("No such request.")
         text = c.body.get("text") if isinstance(c.body, dict) else None
-        if not isinstance(text, str) or not text.strip() or len(text) > TEXT_MAX:
-            raise invalid("text is required (max 20000 characters).")
+        if not isinstance(text, str) or not text.strip():
+            raise invalid("text is required (max 20000 characters).", "text", "required")
+        if len(text) > TEXT_MAX:
+            raise invalid("text is required (max 20000 characters).", "text", "too_long", limit=TEXT_MAX)
         if r.status != "NeedsInfo" or not r.build_id:
-            raise HocError(409, "not_awaiting_reply", "This request is not waiting for an answer.")
-        if not self.platform.reply_to_build(r.build_id, text).ok:
-            raise platform_unavailable()
+            raise HocError(409, "not_awaiting_reply", "This request is not waiting for an answer.", "status", "invalid_value", [r.status])
+        replied = self.platform.reply_to_build(r.build_id, text)
+        if not replied.ok:
+            raise platform_unavailable(replied)
         with self.storage.transaction(write=True) as tx:
             tx.update_request(r.id, status="InProgress", message=None, updated_at=now_iso())
             r = tx.get_request(r.id)
@@ -482,7 +485,7 @@ class HostModule:
     def _resolve(self, c: _Call) -> HocResponse:
         path = self._q1(c.query, "path")
         if not path or not path.startswith("/"):
-            raise invalid("path must start with /.")
+            raise invalid("path must start with /.", "path", "invalid_format")
         with self.storage.transaction() as tx:
             cands = [ld for ld in self._visible_with_state(tx, c.user, path) if not ld.state.disabled]
 
@@ -535,10 +538,10 @@ class HostModule:
             ld = self._load_visible(tx, c.params[0], c.user)
             body = c.body
             if not isinstance(body, dict) or "version" not in body or (body["version"] is not None and not isinstance(body["version"], str)):
-                raise invalid("version is required (a version string or null).")
+                raise invalid("version is required (a version string or null).", "version", "required")
             version = body["version"]
             if version is not None and tx.get_version(ld.feature.id, version) is None:
-                raise HocError(404, "version_not_found", "No such version.")
+                raise HocError(404, "version_not_found", "No such version.", "version", "not_found", [str(version)])
             tx.set_pin(ld.feature.id, c.user.id, version)
             return self._reload_view(tx, c, ld.feature.id)
 
@@ -547,11 +550,11 @@ class HostModule:
             ld = self._load_visible(tx, c.params[0], c.user)
             version = c.body.get("version") if isinstance(c.body, dict) else None
             if not isinstance(version, str) or not version:
-                raise invalid("version is required.")
+                raise invalid("version is required.", "version", "required")
             if ld.feature.owner_user_id != c.user.id and not self._admin(c):
                 raise forbidden("Only the owner or an admin may do this.")
             if tx.get_version(ld.feature.id, version) is None:
-                raise HocError(404, "version_not_found", "No such version.")
+                raise HocError(404, "version_not_found", "No such version.", "version", "not_found", [str(version)])
             tx.update_feature(ld.feature.id, current_version=version)
             return self._reload_view(tx, c, ld.feature.id)
 
@@ -564,7 +567,7 @@ class HostModule:
         named = keys == ["userIds"] and isinstance(body["userIds"], list) and len(body["userIds"]) > 0 and all(isinstance(x, str) for x in body["userIds"])
         everyone = keys == ["everyone"] and body["everyone"] is True
         if not named and not everyone:
-            raise invalid("Send either userIds (non-empty) or everyone: true.")
+            raise invalid("Send either userIds (non-empty) or everyone: true.", "userIds", "required")
         policy = policies["shareWithEveryone"] if everyone else policies["shareWithNamedUsers"]
         if not self._allowed_by(policy, self._admin(c), ld.feature.owner_user_id == c.user.id):
             raise HocError(403, "sharing_not_allowed", "Sharing is not allowed for you.")
@@ -572,7 +575,7 @@ class HostModule:
         if named:
             for uid in targets:
                 if uid != c.user.id and not self._user_known(str(uid)):
-                    raise invalid("Unknown user id.")
+                    raise invalid("Unknown user id.", "userIds", "unknown_user", [str(uid)])
         with self.storage.transaction(write=True) as tx:
             self._load_visible(tx, ld.feature.id, c.user)
             for t in targets:
@@ -598,14 +601,16 @@ class HostModule:
             ld = self._load_visible(tx, c.params[0], c.user)
             enabled = c.body.get("enabled") if isinstance(c.body, dict) else None
             if not isinstance(enabled, bool):
-                raise invalid("enabled must be a boolean.")
+                raise invalid("enabled must be a boolean.", "enabled", "wrong_type")
             tx.set_disabled(ld.feature.id, c.user.id, not enabled)
             return self._reload_view(tx, c, ld.feature.id)
 
     def _users(self, c: _Call) -> HocResponse:
         q = self._q1(c.query, "query")
-        if not q or len(q) > 100:
-            raise invalid("query is required (max 100 characters).")
+        if not q:
+            raise invalid("query is required (max 100 characters).", "query", "required")
+        if len(q) > 100:
+            raise invalid("query is required (max 100 characters).", "query", "too_long", limit=100)
         limit = self._int_param(c.query, "limit", 20, 1, 50)
         with self.storage.transaction() as tx:
             policy = self._settings(tx)["shareWithNamedUsers"]
@@ -646,21 +651,27 @@ class HostModule:
             raise forbidden("Admins only.")
         body = c.body
         if not isinstance(body, dict):
-            raise invalid("Body must be an object.")
+            raise invalid("Body must be an object.", "body", "wrong_type")
         if body.get("renderingMode") not in MODES:
-            raise invalid("renderingMode must be inject or iframe.")
-        if body.get("shareWithNamedUsers") not in POLICIES or body.get("shareWithEveryone") not in POLICIES:
-            raise invalid("Sharing policies must be owner, admins or nobody.")
+            raise invalid("renderingMode must be inject or iframe.", "renderingMode", "invalid_value", ["inject", "iframe"])
+        for f in ("shareWithNamedUsers", "shareWithEveryone"):
+            if body.get(f) not in POLICIES:
+                raise invalid("Sharing policies must be owner, admins or nobody.", f, "invalid_value", list(POLICIES))
         if body.get("viewAllRequests") not in ("admins", "everyone"):
-            raise invalid("viewAllRequests must be admins or everyone.")
+            raise invalid("viewAllRequests must be admins or everyone.", "viewAllRequests", "invalid_value", ["admins", "everyone"])
         sources = body.get("dataSources")
         if not isinstance(sources, list):
-            raise invalid("dataSources must be an array.")
-        for d in sources:
-            if not isinstance(d, dict) or not isinstance(d.get("name"), str) or not d["name"] or not isinstance(d.get("baseUrl"), str):
-                raise invalid("Each data source needs a name and baseUrl.")
+            raise invalid("dataSources must be an array.", "dataSources", "wrong_type")
+        for i, d in enumerate(sources):
+            at = f"dataSources[{i}]"
+            if not isinstance(d, dict):
+                raise invalid("Each data source needs a name and baseUrl.", at, "wrong_type")
+            if not isinstance(d.get("name"), str) or not d["name"]:
+                raise invalid("Each data source needs a name and baseUrl.", f"{at}.name", "required")
+            if not isinstance(d.get("baseUrl"), str):
+                raise invalid("Each data source needs a name and baseUrl.", f"{at}.baseUrl", "required")
             if not re.match(r"^[A-Za-z][A-Za-z0-9+.-]*://[^\s/]+", d["baseUrl"]):
-                raise invalid("baseUrl must be a URL.")
+                raise invalid("baseUrl must be a URL.", f"{at}.baseUrl", "invalid_format")
             auth = d.get("auth")
             if auth is not None and (
                 not isinstance(auth, dict)
@@ -669,7 +680,7 @@ class HostModule:
                 or not _SECRET_NAME.match(auth["secret"])
                 or ("secretValue" in auth and not isinstance(auth["secretValue"], str))
             ):
-                raise invalid("auth must be bearer with a secret name [a-z0-9_-]{1,64}.")
+                raise invalid("auth must be bearer with a secret name [a-z0-9_-]{1,64}.", f"{at}.auth", "invalid_format")
         new = {
             "renderingMode": body["renderingMode"],
             "shareWithNamedUsers": body["shareWithNamedUsers"],
@@ -686,10 +697,14 @@ class HostModule:
         if canon(new["dataSources"]) != canon(old["dataSources"]) or any((d.get("auth") or {}).get("secretValue") for d in sources):
             for d in sources:
                 value = (d.get("auth") or {}).get("secretValue")
-                if value and not self.platform.put_secret(d["auth"]["secret"], value, c.user.id).ok:
-                    raise platform_unavailable()
-            if not self.platform.put_data_sources(new["dataSources"]).ok:
-                raise platform_unavailable()
+                if not value:
+                    continue
+                put = self.platform.put_secret(d["auth"]["secret"], value, c.user.id)
+                if not put.ok:
+                    raise platform_unavailable(put)
+            saved = self.platform.put_data_sources(new["dataSources"])
+            if not saved.ok:
+                raise platform_unavailable(saved)
         with self.storage.transaction(write=True) as tx:
             tx.save_settings(new)
         return HocResponse(200, self._public_settings(new))
@@ -701,11 +716,11 @@ class HostModule:
         try:
             ev = json.loads(raw.decode("utf-8"))
         except (ValueError, UnicodeDecodeError):
-            return HocResponse(400, {"error": "invalid_request", "message": "Malformed JSON."})
+            return HocResponse(400, {"error": "invalid_request", "message": "Malformed JSON.", "field": "body", "reason": "invalid_format"})
         if not isinstance(ev, dict):
-            return HocResponse(400, {"error": "invalid_request", "message": "Body must be an object."})
+            return HocResponse(400, {"error": "invalid_request", "message": "Body must be an object.", "field": "body", "reason": "wrong_type"})
         if "sentAt" in ev and is_stale(ev["sentAt"]):
-            return HocResponse(400, {"error": "stale_event", "message": "sentAt is outside the tolerance."})
+            return HocResponse(400, {"error": "stale_event", "message": "sentAt is outside the tolerance.", "field": "sentAt", "reason": "out_of_range"})
         event_id = ev.get("eventId")
         with self.storage.transaction(write=True) as tx:
             if isinstance(event_id, str) and event_id and not tx.record_event(event_id, now_iso()):

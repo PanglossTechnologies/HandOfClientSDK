@@ -37,6 +37,16 @@ info:
 
     Every error response is `{ "error": "<code>", "message": "<human text>" }` with the HTTP status shown
     for the code (see `ErrorCode`). `message` is safe to show to the user; `error` is for programs.
+
+    For debugging, an error may also carry machine-readable detail (no human text), all optional:
+    `field` (the request body field or query parameter, a dotted/indexed path such as
+    `dataSources[1].baseUrl`) with `reason` (`required`, `too_long`, `wrong_type`, `invalid_format`,
+    `invalid_value`, `out_of_range`, `unknown_user`, `not_found`), `values` (the offending or the allowed
+    values) and `limit` (the bound for `too_long` / `out_of_range`). When the site's own call to the
+    platform failed (`platform_unavailable`, `version_unavailable`), `platform` says what the platform
+    answered: `{ "status": 502, "error": "invalid_request", "field": "...", "reason": "..." }`, where
+    `status` 0 means the platform could not be reached at all. Clients must ignore detail they do not
+    know.
     A feature or request the caller may not see answers `404 not_found`, identical to one that does not
     exist, so ids cannot be probed.
 
@@ -760,6 +770,27 @@ components:
       properties:
         error: { $ref: "#/components/schemas/ErrorCode" }
         message: { type: string, description: "Human-readable, safe to show to the user." }
+        field: { type: string, description: "Request field or query parameter (dotted/indexed path) the error is about." }
+        reason:
+          type: string
+          enum: [required, too_long, wrong_type, invalid_format, invalid_value, out_of_range, unknown_user, not_found]
+          description: Why. Present whenever `field` is.
+        values:
+          type: array
+          items: { type: string }
+          description: The offending values, or the allowed ones for `invalid_value`.
+        limit: { type: integer, description: "The bound exceeded, for `too_long` / `out_of_range`." }
+        platform:
+          type: object
+          description: What the platform answered when the site's call to it failed.
+          required: [status]
+          properties:
+            status: { type: integer, description: "HTTP status the platform answered; 0 when it could not be reached." }
+            error: { type: string, description: "The platform's /host/v1 error code." }
+            field: { type: string }
+            reason: { type: string }
+            values: { type: array, items: { type: string } }
+            limit: { type: integer }
     EmbedTokenResponse:
       type: object
       required: [token, expiresAt, userId]
