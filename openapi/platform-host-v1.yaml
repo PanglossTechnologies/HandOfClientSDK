@@ -802,6 +802,40 @@ paths:
                         taskId: { type: [string, "null"] }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+  /host/v1/bundles:
+    post:
+      tags: [Bundles]
+      operationId: uploadBundle
+      summary: Stage a bundle (zip) for publishing; returns its content hash.
+      description: |
+        Used by `hoc-publish`. Send the zipped bundle as the raw request body
+        (`Content-Type: application/zip`). The platform stages it by content hash and answers
+        `{ "bundleHash": "..." }`; that hash is what a subsequent publish refers to. Uploading the same
+        bytes twice yields the same hash. A body that is not a valid bundle zip is `400`.
+      requestBody:
+        required: true
+        content:
+          application/zip:
+            schema: { type: string, format: binary }
+      responses:
+        "200":
+          description: Staged.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [bundleHash]
+                properties:
+                  bundleHash: { type: string }
+        "400":
+          description: Not a valid bundle.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /embed/{packageIdB64}/{version}/{path}:
     get:
       tags: [Bundles]

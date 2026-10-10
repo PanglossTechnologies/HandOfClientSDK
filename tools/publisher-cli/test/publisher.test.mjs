@@ -1,6 +1,6 @@
 // hoc-publish tests: manifest/bundle validation (negative cases) and an end-to-end publish of an iframe
 // bundle and an inject bundle against a stub platform that speaks the real wire formats (raw zip upload
-// at POST /internal/bundles, grpc-web PublishVersion). Needs `npm run build` first (uses dist/).
+// at POST /host/v1/bundles, grpc-web PublishVersion). Needs `npm run build` first (uses dist/).
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -136,7 +136,7 @@ describe("hoc-publish end to end (stub platform)", () => {
       const chunks = [];
       for await (const c of req) chunks.push(c);
       const body = Buffer.concat(chunks);
-      if (req.method === "POST" && req.url === "/internal/bundles") {
+      if (req.method === "POST" && req.url === "/host/v1/bundles") {
         seen.uploads.push({ key: req.headers["x-api-key"], host: req.headers["x-hoc-host"], size: body.length });
         if (behavior.rejectUpload) { res.writeHead(401).end(); return; }
         const bundleHash = createHash("sha256").update(body).digest("hex");

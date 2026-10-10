@@ -27,10 +27,6 @@ const BANNED = [
  */
 const ALLOWLIST = new Map([
   ["tools/lint-public-repo.mjs", "defines the banned terms"],
-  // The publisher CLI uploads bundles with POST {apiBaseUrl}/internal/bundles. That is the platform's
-  // bundle-upload route, not documented for sites; the CLI is the only supported caller.
-  ["tools/publisher-cli/src/publish.ts", "bundle upload route used by hoc-publish"],
-  ["tools/publisher-cli/test/publisher.test.mjs", "fake platform serving the bundle upload route"],
 ]);
 
 /** Tracked files that are never scanned (lockfiles and vendored dependency trees). */

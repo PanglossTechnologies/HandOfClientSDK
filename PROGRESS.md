@@ -236,3 +236,6 @@ Every /host/v1 error is now `{error: "<code>"}` only (no message, no human text;
 
 ## 2026-10-09 HOCSDK-3 follow-up: structured error detail
 Debugging detail came back as machine-readable fields, not text: hoc/api errors (node, python, php host modules, fake platform, reference host, embed-js FeaturesApiError.detail) keep `error`+`message` and add optional `field`/`reason`/`values`/`limit`, plus a `platform` block ({status, error, field, reason...}; status 0 = unreachable) when a platform call failed. /host/v1 errors carry the same field/reason/values/limit. Reason vocabulary is a closed snake_case set documented in both OpenAPI files; conformance suite file 08-error-detail pins it. PHP not run locally (no php here), CI covers it.
+
+## 2026-10-09 HOCSDK-9 hoc-publish uses the public bundle route
+hoc-publish uploads to POST {apiBaseUrl}/host/v1/bundles (documented in platform-host-v1.yaml); the two lint allowlist entries are gone. Needs a new hoc-publish release to reach users (HOCSDK-7).

@@ -91,7 +91,7 @@ export async function publish(options: PublishOptions, log: (line: string) => vo
   }
 
   log("Uploading bundle ...");
-  const uploadResponse = await fetch(`${options.apiBaseUrl}/internal/bundles`, {
+  const uploadResponse = await fetch(`${options.apiBaseUrl}/host/v1/bundles`, {
     method: "POST",
     headers: { "x-api-key": options.apiKey, "content-type": "application/zip", ...(options.hostId ? { "x-hoc-host": options.hostId } : {}) },
     body: packed.zipBytes,
